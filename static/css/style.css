@@ -1,0 +1,89 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+header { background: #1a1a2e; color: #fff; padding: 0 2rem; }
+header nav { display: flex; justify-content: space-between; align-items: center; height: 60px; }
+.nav-brand a { color: #e94560; font-size: 1.5rem; font-weight: bold; }
+.nav-links { display: flex; gap: 1.5rem; align-items: center; }
+.nav-links a { color: #fff; }
+.nav-links button { background: none; border: 1px solid #fff; color: #fff; padding: 0.4rem 0.8rem; cursor: pointer; border-radius: 4px; }
+.nav-links button:hover { background: rgba(255,255,255,0.1); }
+
+/* Main */
+main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; min-height: 60vh; }
+
+/* Messages */
+.messages { margin-bottom: 1rem; }
+.message { padding: 0.8rem; border-radius: 4px; margin-bottom: 0.5rem; }
+.message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+/* Buttons */
+.btn { display: inline-block; padding: 0.5rem 1rem; background: #e0e0e0; color: #333; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+.btn:hover { background: #d0d0d0; text-decoration: none; }
+.btn-primary { background: #1a73e8; color: #fff; }
+.btn-primary:hover { background: #1557b0; }
+.btn-danger { background: #dc3545; color: #fff; }
+.btn-danger:hover { background: #c82333; }
+
+/* Auth forms */
+.auth-form { max-width: 400px; margin: 3rem auto; background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.auth-form h1 { margin-bottom: 1.5rem; }
+.auth-form form p { margin-bottom: 1rem; }
+.auth-form form label { display: block; margin-bottom: 0.3rem; font-weight: 500; }
+.auth-form form input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+.auth-form button { width: 100%; padding: 0.7rem; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; }
+.auth-form button:hover { background: #1557b0; }
+
+/* Project list */
+.project-list ul { list-style: none; margin-top: 1rem; }
+.project-list li { background: #fff; padding: 1rem; margin-bottom: 0.5rem; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.project-list li a { font-size: 1.1rem; }
+.project-list .meta { display: block; color: #666; font-size: 0.85rem; margin-top: 0.3rem; }
+.empty { color: #666; font-style: italic; margin-top: 1rem; }
+
+/* Project detail */
+.project-detail h1 { margin-bottom: 0.5rem; }
+.project-detail .description { color: #555; margin-bottom: 1rem; }
+.project-detail .actions { margin: 1rem 0; display: flex; gap: 0.5rem; }
+.plan-list { list-style: none; margin-top: 1rem; }
+.plan-list li { background: #fff; padding: 1rem; margin-bottom: 0.5rem; border-radius: 4px; }
+
+/* Project form */
+.project-form { max-width: 600px; margin: 2rem auto; background: #fff; padding: 2rem; border-radius: 8px; }
+.project-form form p { margin-bottom: 1rem; }
+.project-form label { display: block; font-weight: 500; margin-bottom: 0.3rem; }
+.project-form input, .project-form textarea { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+
+/* Confirm delete */
+.confirm-delete { max-width: 500px; margin: 3rem auto; background: #fff; padding: 2rem; border-radius: 8px; text-align: center; }
+.confirm-delete p { margin: 1rem 0; }
+
+/* Editor */
+.editor-container { display: flex; gap: 1rem; height: 80vh; }
+.editor-sidebar { width: 280px; background: #fff; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow-y: auto; }
+.editor-sidebar h2 { margin-bottom: 0.5rem; font-size: 1.1rem; }
+.editor-sidebar hr { margin: 1rem 0; border: none; border-top: 1px solid #eee; }
+.tools { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tool-btn { padding: 0.5rem 0.8rem; background: #e0e0e0; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.tool-btn.active { background: #1a73e8; color: #fff; }
+.actions { display: flex; flex-direction: column; gap: 0.5rem; }
+.editor-canvas { flex: 1; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; }
+#floorCanvas { border: 1px solid #ccc; }
+
+/* Upload */
+.upload-form { max-width: 500px; margin: 3rem auto; background: #fff; padding: 2rem; border-radius: 8px; }
+.upload-form p { margin-bottom: 1rem; color: #555; }
+.upload-form input[type="file"] { margin-bottom: 1rem; }
+
+/* Export */
+.export-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0; }
+.export-card { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+.export-card h3 { margin-bottom: 0.5rem; }
+.export-card p { margin-bottom: 1rem; color: #555; font-size: 0.9rem; }
+
+/* Footer */
+footer { text-align: center; padding: 2rem; color: #666; font-size: 0.85rem; }

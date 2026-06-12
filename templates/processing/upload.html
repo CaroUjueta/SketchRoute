@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Subir croquis — {{ plan.name }} — SketchRoute{% endblock %}
+{% block content %}
+<div class="upload-form">
+    <h1>Subir croquis para "{{ plan.name }}"</h1>
+    <p>Toma una foto de tu croquis en papel blanco y súbela aquí. Usa colores diferenciados para paredes, puertas y muebles.</p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="image" accept="image/*" capture="environment" required>
+        <button type="submit" class="btn btn-primary">Subir y procesar</button>
+    </form>
+    <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn">Cancelar</a>
+</div>
+{% endblock %}

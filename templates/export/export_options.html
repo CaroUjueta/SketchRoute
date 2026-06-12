@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Exportar — {{ plan.name }} — SketchRoute{% endblock %}
+{% block content %}
+<div class="export-options">
+    <h1>Exportar "{{ plan.name }}"</h1>
+    <p>Selecciona el formato de exportación. El PDF se generará en formato horizontal carta con las cotas y medidas.</p>
+    <div class="export-grid">
+        <div class="export-card">
+            <h3>PDF</h3>
+            <p>PDF vectorial horizontal carta con cotas, señales y rutas de evacuación.</p>
+            <button onclick="exportPlan('pdf')" class="btn btn-primary">Exportar PDF</button>
+        </div>
+        <div class="export-card">
+            <h3>PNG</h3>
+            <p>Imagen de alta resolución del plano completo.</p>
+            <button onclick="exportPlan('png')" class="btn">Exportar PNG</button>
+        </div>
+        <div class="export-card">
+            <h3>SVG</h3>
+            <p>SVG vectorial editable para usar en otros programas.</p>
+            <button onclick="exportPlan('svg')" class="btn">Exportar SVG</button>
+        </div>
+    </div>
+    <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn">Volver al editor</a>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+    const PLAN_ID = {{ plan.id }};
+    function exportPlan(format) {
+        fetch(`/export/generate/${PLAN_ID}/${format}/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        }).then(r => r.json()).then(data => {
+            if (data.url) window.location.href = data.url;
+        });
+    }
+</script>
+{% endblock %}

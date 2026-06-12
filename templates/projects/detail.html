@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}{{ project.name }} — SketchRoute{% endblock %}
+{% block content %}
+<div class="project-detail">
+    <h1>{{ project.name }}</h1>
+    {% if project.description %}
+        <p class="description">{{ project.description }}</p>
+    {% endif %}
+    <p class="meta">Creado: {{ project.created_at|date:"d/m/Y H:i" }}</p>
+
+    <div class="actions">
+        <a href="{% url 'project_update' pk=project.pk %}" class="btn">Editar</a>
+        <a href="{% url 'project_delete' pk=project.pk %}" class="btn btn-danger">Eliminar</a>
+    </div>
+
+    <h2>Planos</h2>
+    <a href="#" class="btn btn-primary" onclick="alert('Función: crear nuevo plano — pendiente')">+ Nuevo plano</a>
+    {% if project.plans.all %}
+        <ul class="plan-list">
+            {% for plan in project.plans.all %}
+                <li>
+                    <a href="{% url 'plan_editor' pk=plan.pk %}">{{ plan.name }}</a>
+                    <span class="meta">{{ plan.updated_at|date:"d/m/Y H:i" }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="empty">Este proyecto no tiene planos aún.</p>
+    {% endif %}
+</div>
+{% endblock %}

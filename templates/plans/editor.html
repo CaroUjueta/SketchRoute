@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}{{ plan.name }} — Editor — SketchRoute{% endblock %}
+{% block extra_head %}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+{% endblock %}
+{% block content %}
+<div class="editor-container">
+    <div class="editor-sidebar">
+        <h2>{{ plan.name }}</h2>
+        <p>Escala: {{ plan.scale }} px/cm</p>
+        <hr>
+        <div class="tools">
+            <button onclick="setTool('select')" class="tool-btn active">Seleccionar</button>
+            <button onclick="setTool('wall')" class="tool-btn">Pared</button>
+            <button onclick="setTool('door')" class="tool-btn">Puerta</button>
+            <button onclick="setTool('window')" class="tool-btn">Ventana</button>
+        </div>
+        <hr>
+        <div class="actions">
+            {% if plan.original_image %}
+                <p>Croquis cargado:</p>
+                <img src="{{ plan.original_image.url }}" alt="Croquis original" style="max-width:100%;">
+            {% else %}
+                <a href="{% url 'upload_image' plan_pk=plan.pk %}" class="btn">Subir croquis</a>
+            {% endif %}
+            <hr>
+            <button onclick="calculateRoutes()" class="btn">Calcular rutas</button>
+            <button onclick="autoPlaceSignals()" class="btn">Señalizar automático</button>
+            <a href="{% url 'export_options' plan_pk=plan.pk %}" class="btn">Exportar</a>
+        </div>
+    </div>
+    <div class="editor-canvas">
+        <canvas id="floorCanvas" width="900" height="600"></canvas>
+    </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+    <script src="{% static 'js/canvas.js' %}"></script>
+    <script>
+        const PLAN_ID = {{ plan.id }};
+        const PLAN_DATA = {{ plan.canvas_data|safe|default:'null' }};
+        initCanvas(PLAN_DATA);
+    </script>
+{% endblock %}
