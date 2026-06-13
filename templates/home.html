@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+{% block title %}SketchRoute — Diseñá mapas de rutas de evacuación y sanitarias{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════ HERO ══════════════════════════════ -->
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-glow-2"></div>
+
+  <div class="hero-inner">
+    <div class="hero-content">
+      <div class="hero-tag">
+        <span class="hero-tag-dot"></span>
+        Editor profesional de planos
+      </div>
+
+      <h1 class="hero-title">
+        Diseñá rutas de<br>
+        <em>evacuación</em> y<br>
+        sanitarias
+      </h1>
+
+      <p class="hero-sub">
+        Herramienta especializada para arquitectos y profesionales de seguridad.
+        Trazá rutas de escape, señalización de emergencia y redes sanitarias
+        sobre planos reales. Exportá listos para cumplir normativa.
+      </p>
+
+      <div class="hero-actions">
+        <a href="{% url 'register' %}" class="btn-primary-lg">
+          Empezar gratis
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+        <a href="{% url 'login' %}" class="btn-ghost-lg">
+          Iniciar sesión
+        </a>
+      </div>
+    </div>
+
+    <!-- Floor Plan Illustration -->
+    <div class="hero-visual">
+      <svg class="floor-plan-svg" viewBox="0 0 480 320" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <pattern id="fp-grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(28,44,76,0.5)" stroke-width="0.4"/>
+          </pattern>
+          <marker id="arr-c" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 Z" fill="#00CFFF"/>
+          </marker>
+          <marker id="arr-g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 Z" fill="#00DF96"/>
+          </marker>
+        </defs>
+
+        <!-- Background grid -->
+        <rect width="480" height="320" fill="url(#fp-grid)"/>
+
+        <!-- Building fill -->
+        <rect x="15" y="15" width="450" height="290" fill="#0D1527"/>
+
+        <!-- Outer walls (with exit gap on left wall y=188–222) -->
+        <line x1="15" y1="15"  x2="465" y2="15"  stroke="#1C2C4C" stroke-width="2.5"/>
+        <line x1="465" y1="15" x2="465" y2="305" stroke="#1C2C4C" stroke-width="2.5"/>
+        <line x1="15" y1="305" x2="465" y2="305" stroke="#1C2C4C" stroke-width="2.5"/>
+        <line x1="15" y1="15"  x2="15"  y2="186" stroke="#1C2C4C" stroke-width="2.5"/>
+        <line x1="15" y1="224" x2="15"  y2="305" stroke="#1C2C4C" stroke-width="2.5"/>
+
+        <!-- Interior wall: vertical at x=190, y=15 to y=305 (door gap y=158–184) -->
+        <line x1="190" y1="15"  x2="190" y2="156" stroke="#1C2C4C" stroke-width="1.8"/>
+        <line x1="190" y1="186" x2="190" y2="305" stroke="#1C2C4C" stroke-width="1.8"/>
+
+        <!-- Interior wall: horizontal at y=155, x=15 to x=190 (door gap x=98–130) -->
+        <line x1="15"  y1="155" x2="96"  y2="155" stroke="#1C2C4C" stroke-width="1.8"/>
+        <line x1="132" y1="155" x2="190" y2="155" stroke="#1C2C4C" stroke-width="1.8"/>
+
+        <!-- Interior wall: vertical at x=345, y=15 to y=175 (door gap y=98–126) -->
+        <line x1="345" y1="15"  x2="345" y2="96"  stroke="#1C2C4C" stroke-width="1.8"/>
+        <line x1="345" y1="128" x2="345" y2="175" stroke="#1C2C4C" stroke-width="1.8"/>
+
+        <!-- Interior wall: horizontal at y=175, x=190 to x=465 (door gap x=268–300) -->
+        <line x1="190" y1="175" x2="266" y2="175" stroke="#1C2C4C" stroke-width="1.8"/>
+        <line x1="302" y1="175" x2="465" y2="175" stroke="#1C2C4C" stroke-width="1.8"/>
+
+        <!-- Door arcs (decorative) -->
+        <path d="M 96 155 A 34 34 0 0 1 130 121" fill="none" stroke="#1C2C4C" stroke-width="1" stroke-dasharray="2 2"/>
+        <path d="M 190 158 A 28 28 0 0 0 162 186" fill="none" stroke="#1C2C4C" stroke-width="1" stroke-dasharray="2 2"/>
+        <path d="M 345 96 A 28 28 0 0 1 317 124" fill="none" stroke="#1C2C4C" stroke-width="1" stroke-dasharray="2 2"/>
+        <path d="M 268 175 A 32 32 0 0 0 236 143" fill="none" stroke="#1C2C4C" stroke-width="1" stroke-dasharray="2 2"/>
+
+        <!-- Room labels -->
+        <text class="label-fade" x="102" y="88"  text-anchor="middle" fill="#3D5580" font-family="'JetBrains Mono',monospace" font-size="9.5">SALA A</text>
+        <text class="label-fade" x="102" y="235" text-anchor="middle" fill="#3D5580" font-family="'JetBrains Mono',monospace" font-size="9.5">SALA B</text>
+        <text class="label-fade" x="265" y="95"  text-anchor="middle" fill="#3D5580" font-family="'JetBrains Mono',monospace" font-size="9.5">SALA C</text>
+        <text class="label-fade" x="405" y="95"  text-anchor="middle" fill="#3D5580" font-family="'JetBrains Mono',monospace" font-size="9.5">SALA D</text>
+        <text class="label-fade" x="327" y="248" text-anchor="middle" fill="#3D5580" font-family="'JetBrains Mono',monospace" font-size="9.5">SALA E</text>
+
+        <!-- EXIT sign at gap -->
+        <rect x="-2" y="188" width="24" height="36" rx="3" fill="#00CFFF" opacity="0.92" class="label-fade"/>
+        <text class="label-fade" x="11" y="201" text-anchor="middle" fill="#07091A" font-family="'JetBrains Mono',monospace" font-size="6.5" font-weight="bold">EXIT</text>
+        <path class="label-fade" d="M 8 210 L 4 205 L 8 200" stroke="#07091A" stroke-width="1.2" fill="none"/>
+        <line class="label-fade" x1="4" y1="205" x2="18" y2="205" stroke="#07091A" stroke-width="1.2"/>
+
+        <!-- Ambient exit glow -->
+        <circle class="label-fade" cx="15" cy="205" r="22" fill="rgba(0,207,255,0.06)"/>
+
+        <!-- ══ ESCAPE ROUTE 1: Sala E → exit (solid cyan) ══ -->
+        <path class="route-escape"
+          d="M 390 248 L 284 248 L 284 170 L 284 168 L 108 168 L 108 205 L 15 205"
+          stroke="#00CFFF" stroke-width="2.6" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"
+          marker-end="url(#arr-c)"/>
+
+        <!-- ══ ESCAPE ROUTE 2: Sala D → exit (dashed cyan) ══ -->
+        <path class="route-escape-b"
+          d="M 405 60 L 405 112 L 265 112 L 265 168 L 108 168"
+          stroke="#00CFFF" stroke-width="2" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"
+          stroke-dasharray="6 4" opacity="0.65"/>
+
+        <!-- ══ SANITARY ROUTE (green dashed) ══ -->
+        <path class="route-sanitary"
+          d="M 15 282 L 190 282 L 190 248 L 465 248"
+          stroke="#00DF96" stroke-width="2.2" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"
+          stroke-dasharray="9 5"
+          marker-end="url(#arr-g)"/>
+
+        <!-- Sanitary nodes -->
+        <circle class="label-fade" cx="190" cy="282" r="4.5" fill="#0D1527" stroke="#00DF96" stroke-width="1.6"/>
+        <circle class="label-fade" cx="310" cy="248" r="4.5" fill="#0D1527" stroke="#00DF96" stroke-width="1.6"/>
+        <circle class="label-fade" cx="420" cy="248" r="4.5" fill="#0D1527" stroke="#00DF96" stroke-width="1.6"/>
+
+        <!-- Legend -->
+        <rect class="label-fade" x="310" y="292" width="150" height="22" rx="4" fill="rgba(13,21,39,0.85)" stroke="#1C2C4C" stroke-width="1"/>
+        <line class="label-fade" x1="318" y1="303" x2="338" y2="303" stroke="#00CFFF" stroke-width="2"/>
+        <text class="label-fade" x="343" y="307" fill="#7B94BE" font-family="'JetBrains Mono',monospace" font-size="8">Evacuación</text>
+        <line class="label-fade" x1="393" y1="303" x2="413" y2="303" stroke="#00DF96" stroke-width="2" stroke-dasharray="5 3"/>
+        <text class="label-fade" x="418" y="307" fill="#7B94BE" font-family="'JetBrains Mono',monospace" font-size="8">Sanitaria</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ FEATURES ══════════════════════════════ -->
+<section class="features">
+  <div class="section-inner">
+    <div class="section-kicker">Funcionalidades</div>
+    <h2 class="section-title">Todo lo que necesitás<br>en un solo lugar</h2>
+    <p class="section-sub">
+      Desde el trazado hasta la exportación, SketchRoute tiene las herramientas
+      para que cumplas normativas con precisión.
+    </p>
+
+    <div class="features-grid">
+      <div class="feature-card c-cyan">
+        <div class="feature-icon i-cyan">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00CFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+        </div>
+        <h3>Editor de planos</h3>
+        <p>Canvas interactivo para dibujar y editar planos arquitectónicos. Importá imágenes como base o dibujá desde cero con herramientas de precisión.</p>
+      </div>
+
+      <div class="feature-card c-red">
+        <div class="feature-icon i-red">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF4545" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <h3>Rutas de evacuación</h3>
+        <p>Trazá rutas de escape con señalización normalizada. Indicadores de salida, flechas de dirección y zonas seguras según normativa vigente.</p>
+      </div>
+
+      <div class="feature-card c-green">
+        <div class="feature-icon i-green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00DF96" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 8v4l3 3"/>
+          </svg>
+        </div>
+        <h3>Redes sanitarias</h3>
+        <p>Diseñá redes de agua potable, cloacas y pluviales. Diferenciá tuberías por tipo, diámetro y material con colores y estilos de línea propios.</p>
+      </div>
+
+      <div class="feature-card c-amber">
+        <div class="feature-icon i-amber">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5A623" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+        </div>
+        <h3>Exportación profesional</h3>
+        <p>Exportá tus planos en PDF de alta resolución, SVG vectorial o PNG. Incluye leyenda, escala y datos del proyecto listos para presentar.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ HOW IT WORKS ══════════════════════════ -->
+<section class="how-it-works">
+  <div class="section-inner">
+    <div class="section-kicker">Cómo funciona</div>
+    <h2 class="section-title">Simple desde el primer plano</h2>
+    <p class="section-sub">
+      En tres pasos tenés tu documento listo para presentar a cliente o inspector.
+    </p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Creá tu proyecto</h3>
+        <p>Registrate, creá un proyecto y subí el plano arquitectónico como imagen de fondo o comenzá con una hoja en blanco.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>Trazá las rutas</h3>
+        <p>Usá las herramientas del editor para dibujar rutas de evacuación en rojo/verde y redes sanitarias con simbología específica.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Exportá y compartí</h3>
+        <p>Generá el plano final en PDF o SVG con leyenda incluida. Compartilo directamente desde la plataforma.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ CTA ════════════════════════════════ -->
+<section class="cta-section">
+  <div style="position:relative; z-index:1;">
+    <h2>Empezá a diseñar hoy</h2>
+    <p>Sin instalaciones. Sin límites en proyectos. Completamente gratis para comenzar.</p>
+    <div style="display:flex; gap:.75rem; justify-content:center; flex-wrap:wrap;">
+      <a href="{% url 'register' %}" class="btn-primary-lg">
+        Crear cuenta gratis
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <a href="{% url 'login' %}" class="btn-ghost-lg">Tengo cuenta</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Intersection Observer for feature card entrance animations
+  const cards = document.querySelectorAll('.feature-card');
+  const observer = new IntersectionObserver(
+    (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+    { threshold: 0.12 }
+  );
+  cards.forEach((c, i) => {
+    c.style.transitionDelay = `${i * 80}ms`;
+    observer.observe(c);
+  });
+</script>
+{% endblock %}

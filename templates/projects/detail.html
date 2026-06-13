@@ -14,7 +14,11 @@
     </div>
 
     <h2>Planos</h2>
-    <a href="#" class="btn btn-primary" onclick="alert('Función: crear nuevo plano — pendiente')">+ Nuevo plano</a>
+    <form method="post" action="{% url 'plan_create' project_pk=project.pk %}" class="new-plan-form">
+        {% csrf_token %}
+        <input type="text" name="name" placeholder="Nombre del nuevo plano (ej. Ruta de evacuación)" required>
+        <button type="submit" class="btn btn-primary">+ Crear plano</button>
+    </form>
     {% if project.plans.all %}
         <ul class="plan-list">
             {% for plan in project.plans.all %}

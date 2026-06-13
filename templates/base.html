@@ -1,49 +1,54 @@
 {% load static %}<!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}SketchRoute — Rutas Sanitarias y Evacuación{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/style.css' %}">
-    {% block extra_head %}{% endblock %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}SketchRoute — Rutas de Evacuación y Sanitarias{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <nav>
-            <div class="nav-brand">
-                <a href="/">SketchRoute</a>
-            </div>
-            <div class="nav-links">
-                {% if user.is_authenticated %}
-                    <a href="{% url 'project_list' %}">Mis Proyectos</a>
-                    <form method="post" action="{% url 'logout' %}" style="display:inline;">
-                        {% csrf_token %}
-                        <button type="submit">Cerrar sesión ({{ user.username }})</button>
-                    </form>
-                {% else %}
-                    <a href="{% url 'login' %}">Iniciar sesión</a>
-                    <a href="{% url 'register' %}">Registrarse</a>
-                {% endif %}
-            </div>
-        </nav>
-    </header>
 
-    <main>
-        {% if messages %}
-            <div class="messages">
-                {% for message in messages %}
-                    <div class="message {{ message.tags }}">{{ message }}</div>
-                {% endfor %}
-            </div>
+  <header>
+    <nav>
+      <div class="nav-brand">
+        <a href="{% url 'home' %}">
+          <span class="nav-dot"></span>SketchRoute
+        </a>
+      </div>
+      <div class="nav-links">
+        {% if user.is_authenticated %}
+          <a href="{% url 'project_list' %}">Mis Proyectos</a>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit">Cerrar sesión</button>
+          </form>
+        {% else %}
+          <a href="{% url 'login' %}">Iniciar sesión</a>
+          <a href="{% url 'register' %}" class="nav-cta">Comenzar gratis</a>
         {% endif %}
-        {% block content %}{% endblock %}
-    </main>
+      </div>
+    </nav>
+  </header>
 
-    <footer>
-        <p>SketchRoute &copy; {% now "Y" %} — Rutas Sanitarias y Evacuación</p>
-    </footer>
+  <main>
+    {% if messages %}
+      <div class="messages">
+        {% for message in messages %}
+          <div class="message {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
 
-    <script src="{% static 'js/main.js' %}"></script>
-    {% block extra_scripts %}{% endblock %}
+  <footer>
+    <p>SketchRoute &copy; {% now "Y" %} &mdash; Rutas de Evacuación y Sanitarias</p>
+  </footer>
+
+  <script src="{% static 'js/main.js' %}"></script>
+  {% block extra_scripts %}{% endblock %}
 </body>
 </html>

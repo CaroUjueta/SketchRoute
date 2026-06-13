@@ -1,8 +1,41 @@
 # SketchRoute — Editor Web de Rutas Sanitarias y Evacuación
 
-> **Estado:** MVP — Fase 0 (Planificación & Setup)
+> **Estado:** Editor funcional — dibujo manual + generación automática de rutas (cliente)
 > **Cronograma:** 12 Jun — 30 Jul 2026
 > **Entrega final:** Jueves 30 de Julio de 2026
+
+---
+
+## ⭐ Editor de planos (implementado)
+
+El editor (`/plans/<id>/editor/`) corre **100% en el navegador** sobre Fabric.js. El
+formato del lienzo es **oficio horizontal (330 × 216 mm)**, igual que el PDF de salida.
+
+### Flujo de trabajo
+
+1. **Crea un plano** desde el detalle del proyecto (queda en oficio horizontal por defecto).
+2. **Dibuja el mapa** con tres tipos de trazo:
+   - **Pared** — línea gruesa; **bloquea** las rutas.
+   - **Mueble** — línea delgada; también bloquea.
+   - **Puerta** (arco de barrido) o **Vano** (abertura básica) — **abren el paso**: son el único lugar por donde una ruta puede cruzar una pared.
+   - Los extremos se **enganchan** automáticamente a extremos de líneas cercanas (snap), para unir tramos.
+3. **Coloca los elementos** arrastrándolos del panel: extintor, botiquín, punto de encuentro, salida; 4 canecas (ordinario=negra, reciclaje=blanca, biosanitario=roja, cortopunzantes=roja con símbolo de peligro); camilla, baño, entrada/salida. Al soltar un elemento el editor vuelve solo a modo selección (un clic basta para volver a seleccionarlo).
+4. **Genera las rutas automáticamente**:
+   - **Evacuación:** coloca "orígenes" verdes (invisibles en el PDF) → cada uno traza una flecha **verde** hasta la salida.
+   - **Sanitaria:** no usa orígenes; **cada caneca es el origen** y genera una flecha **de su color** hasta la salida.
+5. **Exporta a PDF** oficio horizontal. Los orígenes verdes no aparecen.
+
+### Cómo se calculan las rutas (en el cliente)
+
+- El lienzo se rasteriza en una **grilla**; paredes y muebles marcan celdas bloqueadas (con holgura), y puertas/vanos las **liberan**.
+- Se usa **A\*** con movimientos en 4 direcciones → las rutas salen siempre en **ángulos de 90°** y nunca cruzan una pared (solo por puertas/vanos).
+- Las rutas se dibujan estilo **"rayita-flechita"** (línea de guiones + puntas espaciadas).
+- **Fusión:** rutas del mismo color que van al mismo destino comparten tronco (el tramo común se dibuja una sola vez).
+- **Carriles:** rutas de distinto color que comparten pasillo corren **paralelas** con un pequeño desfase, sin encimarse.
+
+> Si una zona queda cerrada por paredes y **sin puerta/vano**, no se genera flecha (aviso: "¿hay un pasillo libre hasta la salida?").
+
+> El pipeline de OpenCV, NetworkX y la señalización NTC descritos más abajo son la **visión completa planeada**; el editor actual ya cubre el dibujo, el ruteo y la exportación del lado del cliente.
 
 ---
 
@@ -202,10 +235,12 @@ SketchRoute/
 │
 ├── static/                   # Archivos estáticos
 │   ├── css/
-│   │   └── style.css         # Estilos del sitio
+│   │   ├── style.css         # Estilos del sitio (landing, auth, listados)
+│   │   └── editor.css        # Cromo oscuro del editor (papel blanco)
 │   ├── js/
 │   │   ├── main.js           # Utilidades generales
-│   │   └── canvas.js         # Lógica del editor Fabric.js
+│   │   ├── icons.js          # Biblioteca de iconos SVG (fuente única)
+│   │   └── canvas.js         # Editor: dibujo, A* de rutas, export PDF
 │   └── img/
 │
 └── media/                    # Archivos subidos por usuarios

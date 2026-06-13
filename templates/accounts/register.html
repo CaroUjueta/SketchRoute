@@ -1,13 +1,26 @@
 {% extends 'base.html' %}
-{% block title %}Registrarse — SketchRoute{% endblock %}
+{% block title %}Crear cuenta — SketchRoute{% endblock %}
+
 {% block content %}
-<div class="auth-form">
+<div class="auth-page">
+  <div class="auth-card">
+
+    <a href="{% url 'home' %}" class="auth-logo">
+      <span class="auth-logo-dot"></span>SketchRoute
+    </a>
+
     <h1>Crear cuenta</h1>
+    <p class="auth-sub">Empezá a diseñar tus planos de rutas</p>
+
     <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Registrarse</button>
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit">Crear cuenta</button>
     </form>
-    <p>¿Ya tienes cuenta? <a href="{% url 'login' %}">Inicia sesión</a></p>
+
+    <p class="auth-foot">
+      ¿Ya tenés cuenta? <a href="{% url 'login' %}">Iniciá sesión</a>
+    </p>
+  </div>
 </div>
 {% endblock %}
