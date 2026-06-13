@@ -12,9 +12,10 @@
 
 const DOC  = { w: 1320, h: 864 };  // ratio oficio horizontal (330×216 mm)
 const GRID = 10;                   // px por celda de la grilla de ruteo
-const CLEAR = 9;                   // holgura alrededor de obstáculos (px)
-const SNAP = 13;                   // radio de enganche entre extremos (px)
-const ARROW_GAP = 74;              // separación entre flechitas (px)
+const CLEAR = 11;                  // holgura alrededor de obstáculos (px)
+const SNAP = 16;                   // radio de enganche entre extremos (px)
+const ARROW_GAP = 150;             // separación entre flechitas (px)
+const AUTOSAVE_MS = 2500;          // espera tras editar antes de autoguardar
 
 const OBSTACLES = new Set(['pared', 'mueble']);
 const EVAC_COLOR = '#16a34a';
@@ -51,6 +52,8 @@ const SR = (() => {
       backgroundColor: '#ffffff',
       preserveObjectStacking: true,
       selection: true,
+      targetFindTolerance: 10,   // facilita clicar líneas finas para moverlas
+      perPixelTargetFind: false,
     });
 
     paintSidebarIcons();
@@ -114,18 +117,27 @@ const SR = (() => {
 
   /* ── Enganche de extremos (snap) ────────────────────────── */
 
+  const SNAP_TYPES = new Set(['pared', 'mueble', 'puerta', 'vano']);
   function collectEndpoints() {
     const pts = [];
     canvas.getObjects().forEach((o) => {
-      if (o === state.draft) return;
-      if (o.srType !== 'pared' && o.srType !== 'mueble') return;
-      const r = o.getBoundingRect(true);
-      if (r.width >= r.height) {
-        const y = r.top + r.height / 2;
-        pts.push({ x: r.left, y }, { x: r.left + r.width, y });
+      if (o === state.draft || !SNAP_TYPES.has(o.srType)) return;
+      const r = o.getBoundingRect(true, true);
+      if (o.type === 'line') {
+        // extremos reales de la línea (asumiendo trazo horizontal o vertical)
+        if (r.width >= r.height) {
+          const y = r.top + r.height / 2;
+          pts.push({ x: r.left, y }, { x: r.left + r.width, y });
+        } else {
+          const x = r.left + r.width / 2;
+          pts.push({ x, y: r.top }, { x, y: r.top + r.height });
+        }
       } else {
-        const x = r.left + r.width / 2;
-        pts.push({ x, y: r.top }, { x, y: r.top + r.height });
+        // puerta / vano: las cuatro esquinas del recuadro
+        pts.push(
+          { x: r.left, y: r.top }, { x: r.left + r.width, y: r.top },
+          { x: r.left, y: r.top + r.height }, { x: r.left + r.width, y: r.top + r.height },
+        );
       }
     });
     return pts;
@@ -562,7 +574,7 @@ const SR = (() => {
     state.history.push(snap);
     if (state.history.length > 60) state.history.shift();
     state.redoStack = [];
-    if (!initial) { state.dirty = true; setStatus('Cambios sin guardar', 'warn'); }
+    if (!initial) { state.dirty = true; setStatus('Cambios sin guardar', 'warn'); scheduleAutoSave(); }
   }
   function loadSnapshot(str) {
     state.loadingHistory = true;
@@ -573,18 +585,31 @@ const SR = (() => {
 
   /* ── Guardar ────────────────────────────────────────────── */
 
-  function save() {
-    setStatus('Guardando…');
-    canvas.discardActiveObject().requestRenderAll();
+  let autoTimer = null;
+  function scheduleAutoSave() {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => saveData(true), AUTOSAVE_MS);
+  }
+
+  function saveData(silent) {
+    clearTimeout(autoTimer);
+    // no autoguardar a mitad de una multi-selección (coords relativas); reintenta luego
+    const ao = canvas.getActiveObject();
+    if (silent && ao && ao.type === 'activeSelection') { scheduleAutoSave(); return; }
+    if (!silent) { setStatus('Guardando…'); canvas.discardActiveObject().requestRenderAll(); }
     fetch(SAVE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
       body: JSON.stringify({ canvas_data: canvas.toJSON(PROPS) }),
     })
       .then(r => r.json())
-      .then(d => { if (d.ok) { state.dirty = false; setStatus('Guardado ' + (d.saved_at || ''), 'ok'); } else setStatus('Error al guardar', 'err'); })
-      .catch(() => setStatus('Error de conexión', 'err'));
+      .then(d => {
+        if (d.ok) { state.dirty = false; setStatus(silent ? 'Autoguardado ✓' : 'Guardado ' + (d.saved_at || ''), 'ok'); }
+        else setStatus('Error al guardar', 'err');
+      })
+      .catch(() => { setStatus(silent ? 'Sin conexión — reintentando…' : 'Error de conexión', 'err'); if (silent) scheduleAutoSave(); });
   }
+  const save = () => saveData(false);
 
   /* ── Exportar PDF ───────────────────────────────────────── */
 
