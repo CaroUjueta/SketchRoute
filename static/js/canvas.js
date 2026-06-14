@@ -13,15 +13,16 @@
 const DOC  = { w: 1320, h: 864 };  // ratio oficio horizontal (330×216 mm)
 const GRID = 10;                   // px por celda de la grilla de ruteo
 const CLEAR = 20;                  // holgura alrededor de obstáculos (px)
-const SNAP = 16;                   // radio de enganche entre extremos (px)
-const LINE_W = 7;                  // grosor del trazo de la flecha (px)
-const ARROW_GAP = 96;              // separación entre flechas → a lo largo de la ruta (px)
-const ARROW_LEN = 32;              // largo de la cola de cada flecha (px)
-const ARROW_SIZE = 12;             // apertura de la punta (px)
-const ARROW_MINDIST = 46;          // distancia mínima entre flechas (anti-encimado)
+const SNAP = 24;                   // radio de enganche entre extremos (px)
+const LINE_W = 3;                  // grosor del trazo de la flecha (px) — bien delgaditas
+const ARROW_GAP = 100;             // separación entre flechas → a lo largo de la ruta (px)
+const ARROW_LEN = 58;              // largo de la cola de cada flecha (px) — largas
+const ARROW_SIZE = 11;             // apertura de la punta (px)
+const ARROW_MINDIST = 48;          // distancia mínima entre flechas del mismo color
+const ARROW_MINGLOBAL = 30;        // distancia mínima entre flechas de CUALQUIER color (anti-encimado en cruces)
 const AUTOSAVE_MS = 2500;          // espera tras editar antes de autoguardar
 
-const OBSTACLES = new Set(['pared', 'mueble']);
+const OBSTACLES = new Set(['pared', 'mueble', 'zona']);
 const EVAC_COLOR = '#16a34a';
 
 // Color de la flecha según el tipo de caneca.
@@ -37,8 +38,7 @@ const LANE_CAP = 40;  // desfase máximo (el adaptativo lo recorta si no cabe)
 const TURN_PEN = 14;   // penalización por girar → recorridos rectos (en "L", no diagonales)
 const CENTER_W = 1.6;  // peso del centrado (alejarse de paredes)
 const DOOR_R = 60;     // radio en el que las rutas convergen al centro de una puerta
-const PREF_STEP = 0.35;// costo (casi gratis) de seguir el tronco del mismo color → fusión
-const AVOID_PEN = 5;   // penalización por cruzar una ruta de OTRO color → menos cruces
+const PREF_STEP = 0.35;// costo (casi gratis) de seguir un corredor ya trazado → confluencia
 
 const isSalida = (o) => o.srType === 'salida_emergencia' || o.srType === 'entrada_salida';
 
@@ -51,7 +51,7 @@ const SR = (() => {
     history: [], redoStack: [], loadingHistory: false, suppress: false, dirty: false,
   };
 
-  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY'];
+  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir'];
 
   /* ── Inicialización ─────────────────────────────────────── */
 
@@ -73,6 +73,7 @@ const SR = (() => {
     canvas.on('selection:created', syncTextBar);
     canvas.on('selection:updated', syncTextBar);
     canvas.on('selection:cleared', syncTextBar);
+    bindUppercase();
     window.addEventListener('resize', fit);
 
     if (savedData) {
@@ -80,13 +81,13 @@ const SR = (() => {
       canvas.loadFromJSON(savedData, () => {
         canvas.renderAll(); fit();
         state.loadingHistory = false;
-        ensureTitle();
+        ensureHeader();
         pushHistory(true);
         setStatus('Plano cargado');
       });
     } else {
       fit();
-      ensureTitle();
+      ensureHeader();
       pushHistory(true);
     }
   }
@@ -122,8 +123,8 @@ const SR = (() => {
     }
     const drawing = tool !== 'select';
     canvas.selection = !drawing;
-    canvas.skipTargetFind = drawing;
-    canvas.defaultCursor = drawing ? 'crosshair' : 'default';
+    canvas.skipTargetFind = drawing && tool !== 'erase';   // el borrador necesita detectar objetos
+    canvas.defaultCursor = tool === 'erase' ? 'crosshair' : (drawing ? 'crosshair' : 'default');
     canvas.discardActiveObject();
     canvas.requestRenderAll();
   }
@@ -177,8 +178,13 @@ const SR = (() => {
     canvas.on('mouse:down', (opt) => {
       const t = state.tool;
       if (t === 'select') return;
-      const p = canvas.getPointer(opt.e);
 
+      if (t === 'erase') {   // borrador: clic sobre un objeto lo elimina
+        if (opt.target) { canvas.remove(opt.target); canvas.requestRenderAll(); pushHistory(); setStatus('Elemento borrado'); }
+        return;
+      }
+
+      const p = canvas.getPointer(opt.e);
       if (t === 'text')        { addText(p.x, p.y); return; }
       if (t === 'origen-evac') { placeMarker(p.x, p.y); return; }
 
@@ -191,9 +197,9 @@ const SR = (() => {
       if (t === 'rect') {
         state.draft = new fabric.Rect({
           left: sp.x, top: sp.y, width: 1, height: 1,
-          fill: 'rgba(124,148,190,0.06)', stroke: '#94a3b8',
-          strokeWidth: 1.5, strokeDashArray: [6, 4], strokeUniform: true,
-          srType: 'zona', srCat: 'shape',
+          fill: 'rgba(107,114,128,0.10)', stroke: '#6b7280',
+          strokeWidth: 2, strokeUniform: true,
+          srType: 'zona', srCat: 'shape',   // cuenta como obstáculo (mueble/área)
         });
       } else if (t === 'wall') {
         state.draft = new fabric.Line([sp.x, sp.y, sp.x, sp.y], {
@@ -266,23 +272,34 @@ const SR = (() => {
 
   /* ── Constructores ──────────────────────────────────────── */
 
-  // Puerta orientada según el arrastre: bisagra en `start`, hoja hacia el eje
-  // dominante del arrastre y arco de barrido de 90° hacia la esquina.
+  // Puerta orientada según el arrastre. Si el arrastre es más horizontal, la
+  // abertura va en una pared horizontal (la hoja abre en vertical) y viceversa.
+  // La abertura (vano en la pared) va de `start` al extremo del arco.
   function makeDoor(start, end, s) {
-    const sx = Math.sign(end.x - start.x) || 1;
-    const sy = Math.sign(end.y - start.y) || 1;
-    const hx = start.x + sx * s, hy = start.y;        // extremo de la hoja
-    const ax = start.x, ay = start.y + sy * s;        // extremo del arco
-    const sweep = (sx * sy > 0) ? 1 : 0;
+    const dx = end.x - start.x, dy = end.y - start.y;
+    const sx = Math.sign(dx) || 1, sy = Math.sign(dy) || 1;
+    let hx, hy, ax, ay, sweep;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      // pared horizontal: abertura horizontal (start→ax), hoja abre vertical
+      hx = start.x; hy = start.y + sy * s;
+      ax = start.x + sx * s; ay = start.y;
+      sweep = (sx * sy > 0) ? 0 : 1;
+    } else {
+      // pared vertical: abertura vertical (start→ay), hoja abre horizontal
+      hx = start.x + sx * s; hy = start.y;
+      ax = start.x; ay = start.y + sy * s;
+      sweep = (sx * sy > 0) ? 1 : 0;
+    }
     const path = `M ${start.x} ${start.y} L ${hx} ${hy} M ${hx} ${hy} A ${s} ${s} 0 0 ${sweep} ${ax} ${ay}`;
     const door = new fabric.Path(path, {
       stroke: '#1f2937', strokeWidth: 2,
       fill: 'transparent', srType: 'puerta', srCat: 'shape',
     });
-    // centro REAL del hueco de paso (entre la bisagra y el extremo del arco),
-    // no el centro del recuadro del arco → para que las rutas crucen por ahí.
+    // centro REAL del hueco de paso (entre la bisagra y el extremo del arco)
     door.srGapX = (start.x + ax) / 2;
     door.srGapY = (start.y + ay) / 2;
+    // orientación de la abertura (a lo largo de la pared): 'h' u 'v'
+    door.srDir = Math.abs(ax - start.x) >= Math.abs(ay - start.y) ? 'h' : 'v';
     return door;
   }
 
@@ -303,6 +320,7 @@ const SR = (() => {
     ], {
       srType: 'vano', srCat: 'shape',
       srGapX: (start.x + end.x) / 2, srGapY: (start.y + end.y) / 2,   // centro del hueco
+      srDir: Math.abs(end.x - start.x) >= Math.abs(end.y - start.y) ? 'h' : 'v',
     });
   }
 
@@ -318,7 +336,14 @@ const SR = (() => {
     syncTextBar();
   }
 
-  /* ── Título del mapa ────────────────────────────────────── */
+  /* ── Encabezado del mapa (logo + marca + título) ────────── */
+
+  // Emblema placeholder (cruz de farmacia). Reemplazable por el logo real.
+  const LOGO_SVG = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="4" width="56" height="56" rx="12" fill="#0f766e"/>
+    <rect x="28" y="15" width="8" height="34" fill="#ffffff"/>
+    <rect x="15" y="28" width="34" height="8" fill="#ffffff"/>
+  </svg>`;
 
   const drugName = () => (typeof PLAN_NAME !== 'undefined' && PLAN_NAME) ? PLAN_NAME : '';
   const titleFor = (mode) => {
@@ -326,18 +351,51 @@ const SR = (() => {
       : mode === 'san' ? 'RUTA SANITARIA'
         : 'RUTA DE EVACUACIÓN / SANITARIA';
     const n = drugName();
-    return base + (n ? '  —  ' + n : '');
+    return (base + (n ? '  —  ' + n : '')).toUpperCase();
   };
 
-  // Crea el título arriba del mapa si aún no existe (se guarda con el plano).
-  function ensureTitle() {
-    if (canvas.getObjects().some(o => o.srType === 'titulo')) return;
-    const t = new fabric.IText(titleFor(null), {
-      left: DOC.w / 2, top: 20, originX: 'center', originY: 'top',
-      fontFamily: 'Syne', fontWeight: 'bold', fontSize: 32, fill: '#111827',
-      textAlign: 'center', srType: 'titulo', srCat: 'title',
+  // Crea el encabezado (logo, "SYSTEFARMA" y título) si aún no existe.
+  // Se guarda con el plano; cada parte se crea solo si falta.
+  function ensureHeader() {
+    const cx = DOC.w / 2;
+    const find = (t) => canvas.getObjects().find(o => o.srType === t);
+
+    // logo: esquina superior izquierda
+    const logo = find('logo');
+    if (logo) {
+      logo.set({ left: 26, top: 18, originX: 'left', originY: 'top' });
+      logo.scaleToWidth(46); logo.setCoords();
+    } else {
+      fabric.loadSVGFromString(LOGO_SVG, (objs, opts) => {
+        const g = fabric.util.groupSVGElements(objs, opts);
+        g.set({ left: 26, top: 18, originX: 'left', originY: 'top', srType: 'logo', srCat: 'header' });
+        g.scaleToWidth(46);
+        canvas.add(g); canvas.requestRenderAll();
+      });
+    }
+
+    // (SYSTEFARMA retirado) — eliminar la marca de planos que la tuvieran
+    const marca = find('marca');
+    if (marca) canvas.remove(marca);
+
+    // título del plano: centrado arriba
+    if (!find('titulo')) {
+      canvas.add(new fabric.IText(titleFor(null), {
+        left: cx, top: 22, originX: 'center', originY: 'top',
+        fontFamily: 'Syne', fontWeight: 'bold', fontSize: 38, fill: '#111827',
+        textAlign: 'center', srType: 'titulo', srCat: 'title',
+      }));
+    }
+  }
+
+  // Mantiene en MAYÚSCULAS el título y la marca aunque se editen a mano.
+  function bindUppercase() {
+    canvas.on('text:changed', (e) => {
+      const o = e.target;
+      if (!o || (o.srType !== 'titulo' && o.srType !== 'marca')) return;
+      const up = (o.text || '').toUpperCase();
+      if (o.text !== up) o.set('text', up);
     });
-    canvas.add(t);
   }
 
   /* ── Formato de texto ───────────────────────────────────── */
@@ -413,11 +471,12 @@ const SR = (() => {
     const cols = Math.ceil(DOC.w / GRID), rows = Math.ceil(DOC.h / GRID);
     const blocked = new Uint8Array(cols * rows);
 
-    const rectCells = (r, pad, fn) => {
-      const x0 = Math.max(0, Math.floor((r.left - pad) / GRID));
-      const x1 = Math.min(cols - 1, Math.floor((r.left + r.width + pad) / GRID));
-      const y0 = Math.max(0, Math.floor((r.top - pad) / GRID));
-      const y1 = Math.min(rows - 1, Math.floor((r.top + r.height + pad) / GRID));
+    const rectCells = (r, pad, fn) => rectCellsXY(r, pad, pad, fn);
+    const rectCellsXY = (r, padX, padY, fn) => {
+      const x0 = Math.max(0, Math.floor((r.left - padX) / GRID));
+      const x1 = Math.min(cols - 1, Math.floor((r.left + r.width + padX) / GRID));
+      const y0 = Math.max(0, Math.floor((r.top - padY) / GRID));
+      const y1 = Math.min(rows - 1, Math.floor((r.top + r.height + padY) / GRID));
       for (let cy = y0; cy <= y1; cy++)
         for (let cx = x0; cx <= x1; cx++) fn(cy * cols + cx);
     };
@@ -430,12 +489,18 @@ const SR = (() => {
     });
 
     // 2) abrir el paso donde hay puertas o vanos (único cruce permitido).
-    //    El desbloqueo debe ser MÁS ancho que la banda que infla la pared
-    //    (CLEAR + grosor), si no el hueco no atraviesa y A* no puede pasar.
-    const OPEN_PAD = CLEAR + 6;
+    //    Anisotrópico: estrecho A LO LARGO de la pared (el paso queda del ancho
+    //    de la puerta → se cruza por la abertura, centrado) y amplio EN PERPENDICULAR
+    //    (CLEAR + grosor) para atravesar la pared.
+    const OPEN_PAD = CLEAR + 8;
     canvas.getObjects().forEach((o) => {
       if (o.srType !== 'puerta' && o.srType !== 'vano') return;
-      rectCells(o.getBoundingRect(true, true), OPEN_PAD, (i) => { blocked[i] = 0; });
+      const r = o.getBoundingRect(true, true);
+      const horizontal = o.srDir ? o.srDir === 'h' : (r.width >= r.height);
+      const padAlong = 1;                       // a lo largo de la abertura (estrecho)
+      const padX = horizontal ? padAlong : OPEN_PAD;
+      const padY = horizontal ? OPEN_PAD : padAlong;
+      rectCellsXY(r, padX, padY, (i) => { blocked[i] = 0; });
     });
 
     // 3) "cercanía a pared": cuántas celdas bloqueadas/bordes rodean a cada celda.
@@ -531,9 +596,10 @@ const SR = (() => {
     return null;
   }
 
-  // `ownColor` + `usedColor` (Map celda→color): premia seguir el mismo color
-  // (fusión) y penaliza cruzar otro color (menos cruces).
-  function astar(grid, start, goal, ownColor, usedColor) {
+  // `shared` (Set/Map de celdas ya usadas por CUALQUIER ruta): premia seguir un
+  // corredor existente → todas las rutas confluyen por los mismos pasillos (luego
+  // se separan por carril de color), evitando cruces y serpenteos.
+  function astar(grid, start, goal, shared) {
     const { cols, rows, blocked, near } = grid;
     const N = cols * rows;
     const idx = (c) => c.cy * cols + c.cx;
@@ -570,11 +636,9 @@ const SR = (() => {
         // (prioriza fusionarse con el tronco existente).
         const turn = (pc !== -1 && (Math.sign(nx - cx) !== pdx || Math.sign(ny - cy) !== pdy)) ? TURN_PEN : 0;
         let step = 1 + (near ? near[nI] * CENTER_W : 0) + turn;
-        if (usedColor) {
-          const oc = usedColor.get(nI);
-          if (oc === ownColor) step = Math.min(step, PREF_STEP);   // mismo color → fusión
-          else if (oc) step += AVOID_PEN;                          // otro color → evitar cruce
-        }
+        // seguir un corredor ya trazado (de cualquier color) es casi gratis →
+        // las rutas confluyen por los mismos pasillos en vez de esquivarse.
+        if (shared && shared.has(nI)) step = Math.min(step, PREF_STEP);
         const ng = g[cur] + step;
         if (ng < g[nI]) { g[nI] = ng; came[nI] = cur; hpush([ng + heur({ cx: nx, cy: ny }, goal), nI]); }
       }
@@ -598,23 +662,6 @@ const SR = (() => {
     return out.map(c => cellCenter(c.cx, c.cy));
   }
 
-  function sampleAlong(points, spacing, offset) {
-    const res = [];
-    let next = offset, dist = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i], b = points[i + 1];
-      const seg = Math.hypot(b.x - a.x, b.y - a.y);
-      const ang = Math.atan2(b.y - a.y, b.x - a.x);
-      while (next <= dist + seg) {
-        const t = (next - dist) / seg;
-        res.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, ang });
-        next += spacing;
-      }
-      dist += seg;
-    }
-    return res;
-  }
-
   // Una flecha "→" (cola + dos alas) como un solo trazo alineado, en (cx,cy)→ang.
   function arrowGlyph(cx, cy, ang, color) {
     const ux = Math.cos(ang), uy = Math.sin(ang), px = -uy, py = ux;
@@ -634,28 +681,57 @@ const SR = (() => {
     x >= r.left - pad && x <= r.left + r.width + pad &&
     y >= r.top - pad && y <= r.top + r.height + pad;
 
-  // Ruta = flechas "→" a intervalos (línea segmentada direccional, sin barra).
+  // Ruta = flechas "→" a intervalos. Cada flecha se orienta según el AVANCE
+  // general (mira hacia adelante en la ruta), no el tramo inmediato — así nunca
+  // apunta "al revés" por un micro-retroceso del desfase.
   // `placed` evita encimar flechas del mismo color; `items` evita ponerlas
   // encima de un icono.
-  function makeRoute(points, color, modeKey, phase, placed, items) {
-    const samples = sampleAlong(points, ARROW_GAP, ARROW_GAP * 0.5);
-    const n = points.length;
-    if (n >= 2) {
-      const a = points[n - 2], b = points[n - 1];
-      samples.push({ x: b.x, y: b.y, ang: Math.atan2(b.y - a.y, b.x - a.x) });
-    }
-    if (!samples.length && n >= 2) {
-      const a = points[0], b = points[n - 1];
-      samples.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, ang: Math.atan2(b.y - a.y, b.x - a.x) });
-    }
-    const minD2 = ARROW_MINDIST * ARROW_MINDIST;
-    const parts = [];
-    samples.forEach(s => {
-      if (items && items.some(r => inRect(s.x, s.y, r, 6))) return;   // no sobre iconos
-      if (placed) {
-        if (placed.some(p => (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < minD2)) return;
-        placed.push({ x: s.x, y: s.y });
+  function makeRoute(points, color, modeKey, phase, placed, items, placedAll) {
+    if (points.length < 2) return null;
+    let total = 0;
+    for (let i = 0; i < points.length - 1; i++) total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+
+    const pointAt = (target) => {
+      let dist = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const seg = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
+        if (dist + seg >= target) { const t = (target - dist) / seg; return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+        dist += seg;
       }
+      return points[points.length - 1];
+    };
+
+    // look-ahead amplio: orienta la flecha por el avance real y salta los
+    // cambios bruscos de desfase (así ninguna flecha "se devuelve").
+    // El ángulo se fuerza al eje dominante → siempre ortogonal (↑↓←→), nunca diagonal.
+    const LA = 40;
+    const dirAt = (d) => {
+      const a = pointAt(Math.max(0, d - LA * 0.25)), b = pointAt(Math.min(total, d + LA));
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 0 : Math.PI;     // horizontal
+      return dy >= 0 ? Math.PI / 2 : -Math.PI / 2;                        // vertical
+    };
+    // flechas regulares a lo largo del recorrido (forman el "camino"), todas
+    // orientadas al eje dominante (ortogonales) y por el avance real.
+    const marks = [];
+    for (let d = ARROW_GAP * 0.6; d < total - 6; d += ARROW_GAP) {
+      const p = pointAt(d);
+      marks.push({ x: p.x, y: p.y, ang: dirAt(d) });
+    }
+    // flecha final, en la meta
+    const end = points[points.length - 1];
+    marks.push({ x: end.x, y: end.y, ang: dirAt(total) });
+
+    const minD2 = ARROW_MINDIST * ARROW_MINDIST;
+    const minG2 = ARROW_MINGLOBAL * ARROW_MINGLOBAL;
+    const parts = [];
+    marks.forEach(s => {
+      if (items && items.some(r => inRect(s.x, s.y, r, 6))) return;   // no sobre iconos
+      if (placed && placed.some(p => (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < minD2)) return;          // mismo color
+      if (placedAll && placedAll.some(p => (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < minG2)) return;    // cualquier color (cruces)
+      if (placed) placed.push({ x: s.x, y: s.y });
+      if (placedAll) placedAll.push({ x: s.x, y: s.y });
       parts.push(arrowGlyph(s.x, s.y, s.ang, color));
     });
     if (!parts.length) return null;
@@ -700,8 +776,9 @@ const SR = (() => {
       return best ? { ...j, sCell, goalCell: best, goalIdx: gi, dist: bestD } : null;
     }).filter(Boolean);
 
-    // tronco primero (más lejano), para que los cercanos se fusionen a él
-    prepared.sort((a, b) => b.dist - a.dist);
+    // agrupar por color (cada color forma un árbol coherente) y, dentro de cada
+    // color, tronco primero (el más lejano), para que los cercanos se fusionen a él
+    prepared.sort((a, b) => (a.color === b.color) ? (b.dist - a.dist) : a.color.localeCompare(b.color));
 
     // asignar un carril (desfase perpendicular) a cada color presente, para que
     // rutas de distinto color que comparten pasillo no queden una encima de otra.
@@ -717,9 +794,10 @@ const SR = (() => {
 
     const usedColor = new Map();     // celda → color que la ocupa (fusión / evitar cruces)
     const placedByColor = {};        // posiciones de flechas por color (anti-encimado)
+    const placedAll = [];            // posiciones de TODAS las flechas (anti-encimado en cruces)
     let drawn = 0;
     prepared.forEach(j => {
-      let cells = astar(grid, j.sCell, j.goalCell, j.color, usedColor);
+      let cells = astar(grid, j.sCell, j.goalCell, usedColor);
       if (!cells || cells.length < 2) return;
 
       // truncar al primer punto ya cubierto por una ruta del MISMO color (fusión)
@@ -733,7 +811,7 @@ const SR = (() => {
       cells.forEach(c => usedColor.set(c.cy * cols + c.cx, j.color));
       const pts = offsetPath(densify(simplify(cells), 22), laneOf[j.color] || 0, grid, doorCenters);
       const list = placedByColor[j.color] || (placedByColor[j.color] = []);
-      const route = makeRoute(pts, j.color, modeKey, null, list, itemRects);
+      const route = makeRoute(pts, j.color, modeKey, null, list, itemRects, placedAll);
       if (route) { canvas.add(route); drawn++; }
     });
 
