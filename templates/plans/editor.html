@@ -198,10 +198,52 @@
 
     <!-- ── CANVAS ───────────────────────────────────────────── -->
     <div class="ed-canvas-wrap" id="canvasWrap">
+
+      <!-- Barra de formato de texto (aparece al seleccionar un texto) -->
+      <div class="ed-text-bar" id="textBar" hidden>
+        <select id="txtFont" onchange="SR.setFont(this.value)" title="Tipo de letra">
+          <option value="DM Sans">DM Sans</option>
+          <option value="Syne">Syne</option>
+          <option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Courier New">Courier New</option>
+        </select>
+        <select id="txtSize" onchange="SR.setTextSize(this.value)" title="Tamaño">
+          <option>12</option><option>14</option><option>16</option><option>18</option>
+          <option>20</option><option>24</option><option>28</option><option>32</option>
+          <option>40</option><option>48</option><option>64</option><option>80</option>
+        </select>
+        <button id="txtBold" class="ed-text-bold" onclick="SR.toggleBold()" title="Negrita"><b>N</b></button>
+      </div>
+
       <canvas id="floorCanvas"></canvas>
     </div>
 
   </div><!-- /ed-body -->
+
+  <!-- ── MODAL: opciones de exportación ──────────────────────── -->
+  <div class="ed-modal" id="exportModal" hidden>
+    <div class="ed-modal-box">
+      <h3>Exportar PDF</h3>
+      <p>¿Qué rutas querés incluir en el documento?</p>
+      <button class="ed-modal-opt ed-modal-opt--evac" onclick="SR.doExport(['evac'])">
+        <span class="ed-marker ed-marker--evac"></span>
+        Solo ruta de evacuación
+      </button>
+      <button class="ed-modal-opt ed-modal-opt--san" onclick="SR.doExport(['san'])">
+        <span class="ed-marker ed-marker--san"></span>
+        Solo ruta sanitaria
+      </button>
+      <button class="ed-modal-opt ed-modal-opt--both" onclick="SR.doExport(['evac','san'])">
+        Ambas — PDF de 2 páginas
+      </button>
+      <button class="ed-modal-cancel" onclick="SR.closeExport()">Cancelar</button>
+    </div>
+  </div>
+
 </div><!-- /ed-shell -->
 {% endblock %}
 
@@ -210,8 +252,9 @@
 <script src="{% static 'js/icons.js' %}"></script>
 <script src="{% static 'js/canvas.js' %}"></script>
 <script>
-  const PLAN_ID   = {{ plan.id }};
-  const PLAN_NAME = "{{ plan.name|escapejs }}";
+  const PLAN_ID      = {{ plan.id }};
+  const PLAN_NAME    = "{{ plan.name|escapejs }}";
+  const PROJECT_NAME = "{{ plan.project.name|escapejs }}";
   const SAVE_URL  = "{% url 'plan_save' pk=plan.id %}";
   const CSRF      = "{{ csrf_token }}";
   const PLAN_DATA = JSON.parse(document.getElementById('plan-data').textContent);

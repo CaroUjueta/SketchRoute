@@ -244,6 +244,7 @@
 /* ── CANVAS ──────────────────────────────────────────────── */
 
 .ed-canvas-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -263,3 +264,120 @@
   border-radius: 2px;
 }
 #floorCanvas { background: #ffffff; }
+
+/* ── BARRA DE FORMATO DE TEXTO ────────────────────────────── */
+
+.ed-text-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .5);
+}
+.ed-text-bar[hidden] { display: none; }
+
+.ed-text-bar select {
+  height: 30px;
+  padding: 0 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  font-family: var(--font-b);
+  font-size: 0.82rem;
+  cursor: pointer;
+  outline: none;
+}
+.ed-text-bar select:focus { border-color: var(--cyan); }
+#txtSize { width: 64px; }
+
+.ed-text-bold {
+  width: 30px; height: 30px;
+  background: var(--surface);
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all .15s;
+}
+.ed-text-bold:hover { color: var(--text); border-color: var(--text-3); }
+.ed-text-bold.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+
+/* ── MODAL DE EXPORTACIÓN ─────────────────────────────────── */
+
+.ed-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 9, 26, .72);
+  backdrop-filter: blur(4px);
+}
+.ed-modal[hidden] { display: none; }
+
+.ed-modal-box {
+  width: min(400px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 1.75rem;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
+}
+.ed-modal-box h3 {
+  font-family: var(--font-d);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+.ed-modal-box p {
+  color: var(--text-2);
+  font-size: 0.85rem;
+  margin-bottom: 1.35rem;
+}
+
+.ed-modal-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin-bottom: 0.6rem;
+  padding: 0.8rem 1rem;
+  font-family: var(--font-b);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: all .15s;
+}
+.ed-modal-opt--evac:hover { border-color: #16a34a; color: #4ade80; background: rgba(22,163,74,.12); }
+.ed-modal-opt--san:hover  { border-color: #dc2626; color: #f87171; background: rgba(220,38,38,.12); }
+.ed-modal-opt--both:hover { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+
+.ed-modal-cancel {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.6rem;
+  font-family: var(--font-b);
+  font-size: 0.85rem;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.ed-modal-cancel:hover { color: var(--text); }
