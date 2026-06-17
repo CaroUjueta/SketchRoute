@@ -3,7 +3,7 @@
 {% block title %}{{ plan.name }} — Editor — SketchRoute{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/editor.css' %}">
+<link rel="stylesheet" href="{% static 'css/editor.css' %}?v=2">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 {% endblock %}
@@ -249,8 +249,8 @@
 
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
-<script src="{% static 'js/icons.js' %}"></script>
-<script src="{% static 'js/canvas.js' %}"></script>
+<script src="{% static 'js/icons.js' %}?v=2"></script>
+<script src="{% static 'js/canvas.js' %}?v=2"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
