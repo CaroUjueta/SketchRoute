@@ -78,14 +78,23 @@ const SR = (() => {
 
     if (savedData) {
       state.loadingHistory = true;
-      canvas.loadFromJSON(savedData, () => {
-        canvas.renderAll(); fit();
+      try {
+        canvas.loadFromJSON(savedData, () => {
+          canvas.renderAll(); fit();
+          state.loadingHistory = false;
+          explodeRouteGroups();
+          ensureHeader();
+          pushHistory(true);
+          setStatus('Plano cargado');
+        });
+      } catch (e) {
+        console.error('loadFromJSON falló:', e);
+        setStatus('Error al cargar plano', 'error');
+        fit();
         state.loadingHistory = false;
-        explodeRouteGroups();   // rutas viejas (grupo) → flechas individuales
         ensureHeader();
         pushHistory(true);
-        setStatus('Plano cargado');
-      });
+      }
     } else {
       fit();
       ensureHeader();

@@ -797,7 +797,7 @@ footer p {
 .tool-btn.active { background: var(--cyan-dim); border-color: rgba(0,207,255,.4); color: var(--cyan); }
 .actions { display: flex; flex-direction: column; gap: 0.5rem; }
 .editor-canvas { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-#floorCanvas { border: 1px solid var(--border); background: var(--bg-2); }
+#floorCanvas { border: 1px solid var(--border); background: #ffffff; }
 
 /* ── UPLOAD ──────────────────────────────────────────────── */
 

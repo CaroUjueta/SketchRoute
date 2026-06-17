@@ -381,3 +381,31 @@
   cursor: pointer;
 }
 .ed-modal-cancel:hover { color: var(--text); }
+
+/* ── Guía de colores (vectorización) ─────────────────── */
+.ed-color-guide {
+  margin: 0.3rem 0 0.6rem;
+  padding: 0.5rem;
+  background: var(--bg-2);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.ed-color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2px 0;
+}
+.ed-color-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+.ed-color-label {
+  font-size: 0.78rem;
+  color: var(--text-2);
+}
+.ed-color-label b {
+  color: var(--text);
+}
