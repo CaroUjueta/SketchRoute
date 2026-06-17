@@ -300,6 +300,7 @@ def close_gaps(segments, gap_tol=20):
     verticals = [s for s in segments if not _is_horizontal(np.array(s))]
 
     result = list(segments)
+    modified = [False] * len(result)
 
     for h in horizontals:
         x1, y1, x2, y2 = h
@@ -320,7 +321,9 @@ def close_gaps(segments, gap_tol=20):
                     changed = True
 
         if changed:
-            result.append([lx1, ly, lx2, ly])
+            idx = next(i for i, s in enumerate(result) if s == h)
+            result[idx] = (lx1, ly, lx2, ly)
+            modified[idx] = True
 
     for v in verticals:
         vx1, vy1, vx2, vy2 = v
@@ -341,6 +344,8 @@ def close_gaps(segments, gap_tol=20):
                     changed = True
 
         if changed:
-            result.append([lx, vy1, lx, vy2])
+            idx = next(i for i, s in enumerate(result) if s == v)
+            result[idx] = (lx, vy1, lx, vy2)
+            modified[idx] = True
 
     return result

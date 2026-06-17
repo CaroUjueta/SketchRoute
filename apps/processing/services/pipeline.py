@@ -161,9 +161,13 @@ class ProcessingPipeline:
 
             room_list = []
             if wall_segments_h or wall_segments_v:
-                graph = rooms.build_intersection_graph(
-                    wall_segments_h, wall_segments_v,
-                )
+                # forzar grid y cerrar gaps para que el grafo sea preciso
+                segs = wall_segments_h + wall_segments_v
+                segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
+                segs = lines.close_gaps(segs, gap_tol=20)
+                sh = [s for s in segs if lines._is_horizontal(s)]
+                sv = [s for s in segs if not lines._is_horizontal(s)]
+                graph = rooms.build_intersection_graph(sh, sv)
                 room_list = rooms.find_rooms(
                     graph,
                     min_area=self.config['room_min_area'],
