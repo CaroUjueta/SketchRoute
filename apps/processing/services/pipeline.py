@@ -30,8 +30,8 @@ class ProcessingPipeline:
         self.config = {
             'target_w': 1320,
             'target_h': 864,
-            'hough_min_length': 20,
-            'hough_max_gap': 10,
+            'hough_min_length': 15,
+            'hough_max_gap': 12,
             'merge_angle_tol': 3,
             'merge_dist_tol': 15,
             'merge_gap_tol': 20,
@@ -96,35 +96,25 @@ class ProcessingPipeline:
                     max_gap=self.config['hough_max_gap'],
                 )
 
-                h, v, _ = lines.classify_lines(raw, angle_tolerance=5)
-                h = lines.merge_colinear(
-                    h,
-                    angle_tol=self.config['merge_angle_tol'],
-                    dist_tol=self.config['merge_dist_tol'],
-                    gap_tol=self.config['merge_gap_tol'],
-                )
-                v = lines.merge_colinear(
-                    v,
-                    angle_tol=self.config['merge_angle_tol'],
-                    dist_tol=self.config['merge_dist_tol'],
-                    gap_tol=self.config['merge_gap_tol'],
-                )
-
-                # guardar h/v para puertas/vanos (cierran recintos)
-                if elem_type == 'puerta':
-                    door_segments_h = list(h)
-                    door_segments_v = list(v)
-                elif elem_type == 'vano':
-                    vano_segments_h = list(h)
-                    vano_segments_v = list(v)
-
-                # para paredes: extender a intersecciones para cerrar recintos
+                # paredes: usar clasificación H/V estricta para el grafo
+                # puertas/vanos/muebles: usar todos los segmentos (trazos finos y temblorosos)
                 if elem_type == 'pared':
+                    h, v, _ = lines.classify_lines(raw, angle_tolerance=5)
+                    h = lines.merge_colinear(
+                        h,
+                        angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                    )
+                    v = lines.merge_colinear(
+                        v,
+                        angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                    )
                     h, v = lines.extend_to_intersections(
                         h, v, max_extend=self.config['extend_max'],
                     )
-                    # re-fusionar después de extensión para eliminar
-                    # segmentos que ahora se superponen
                     h = lines.merge_colinear(
                         h, angle_tol=self.config['merge_angle_tol'],
                         dist_tol=self.config['merge_dist_tol'],
@@ -137,8 +127,30 @@ class ProcessingPipeline:
                     )
                     wall_segments_h = h
                     wall_segments_v = v
-
-                segs = h + v
+                    segs = h + v
+                else:
+                    # puertas/vanos/muebles: clasificar con tolerancia amplia
+                    h, v, o = lines.classify_lines(raw, angle_tolerance=10)
+                    h = lines.merge_colinear(
+                        h,
+                        angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                    )
+                    v = lines.merge_colinear(
+                        v,
+                        angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                    )
+                    if elem_type in ('puerta', 'vano'):
+                        if elem_type == 'puerta':
+                            door_segments_h = h
+                            door_segments_v = v
+                        else:
+                            vano_segments_h = h
+                            vano_segments_v = v
+                    segs = h + v
                 segs = lines.close_gaps(segs, gap_tol=self.config['close_gap_tol'])
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
 

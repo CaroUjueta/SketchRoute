@@ -1,42 +1,292 @@
 {% extends 'base.html' %}
 {% load static %}
-
-{% block title %}
-Editor | SketchRoute
-{% endblock %}
+{% block title %}{{ plan.name }} — Editor — SketchRoute{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/editor.css' %}">
+<link rel="stylesheet" href="{% static 'css/editor.css' %}?v=3">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
+<div class="ed-shell">
 
-<div class="editor-layout">
+  <!-- ── TOP BAR ─────────────────────────────────────────── -->
+  <div class="ed-topbar">
+    <div class="ed-topbar-left">
+      <a href="{% url 'project_detail' pk=plan.project.pk %}" class="ed-back" title="Volver al proyecto">←</a>
+      <span class="ed-plan-name">{{ plan.name }}</span>
+      <span class="ed-badge">Oficio horizontal</span>
+      <span class="ed-sep"></span>
+      <button class="ed-tb-btn" onclick="SR.undo()" title="Deshacer (Ctrl+Z)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+      </button>
+      <button class="ed-tb-btn" onclick="SR.redo()" title="Rehacer (Ctrl+Y)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>
+      </button>
+      <span class="ed-sep"></span>
+      <button class="ed-tb-btn" onclick="SR.zoomOut()" title="Alejar">−</button>
+      <button class="ed-tb-btn" onclick="SR.zoomReset()" title="Ajustar a pantalla">⤢</button>
+      <button class="ed-tb-btn" onclick="SR.zoomIn()" title="Acercar">+</button>
+    </div>
+    <div class="ed-topbar-center">
+      <span id="ed-status" class="ed-status">Listo</span>
+    </div>
+    <div class="ed-topbar-right">
+      <label class="ed-tb-btn" title="Subir croquis de fondo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+        Subir croquis
+        <input type="file" id="bg-upload" accept="image/*" hidden>
+      </label>
+      <button class="ed-tb-btn ed-tb-btn--save" onclick="SR.save()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Guardar
+      </button>
+      <button class="ed-tb-btn ed-tb-btn--export" onclick="SR.exportPDF()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+        Exportar PDF
+      </button>
+    </div>
+  </div>
 
-    {% include 'plans/sidebar.html' %}
+  <!-- ── BODY ──────────────────────────────────────────────── -->
+  <div class="ed-body">
 
-    <div class="workspace">
+    <!-- ── SIDEBAR ─────────────────────────────────────────── -->
+    <aside class="ed-sidebar">
 
-        {% include 'plans/toolbar.html' %}
-
-        <div class="canvas-wrapper">
-            <canvas id="editorCanvas"></canvas>
+      <!-- Herramientas de dibujo -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span>Herramientas</span><span class="ed-chevron">▾</span>
         </div>
+        <div class="ed-section-bd">
+          <div class="ed-tools-grid">
+            <button class="ed-tool active" id="tool-select" onclick="SR.setTool('select',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 9-7 1-4 7z"/></svg>
+              <span>Seleccionar</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('wall',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+              <span>Pared</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('furniture',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+              <span>Mueble</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('door',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21V5M5 5h6a8 8 0 0 1 8 8"/></svg>
+              <span>Puerta</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('vano',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4v16M19 4v16"/><path d="M9 12h6" stroke-dasharray="2 2"/></svg>
+              <span>Vano</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('rect',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+              <span>Zona</span>
+            </button>
+            <button class="ed-tool" onclick="SR.setTool('text',this)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              <span>Texto</span>
+            </button>
+            <button class="ed-tool ed-tool--danger" onclick="SR.setTool('erase',this)" title="Borrador: clic sobre un objeto para eliminarlo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              <span>Borrar</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
+      <!-- Vectorización de croquis -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--blue"></i>Vectorización</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Subí un croquis a papel (foto o scan) y detectamos paredes, puertas y muebles por colores:</p>
+          <div class="ed-color-guide">
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#1f2937;border:1px solid #666;"></span><span class="ed-color-label"><b>Negro</b> — Paredes</span></div>
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#1d4ed8;"></span><span class="ed-color-label"><b>Azul</b> — Puertas (con arco)</span></div>
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#059669;"></span><span class="ed-color-label"><b>Verde</b> — Vanos / aberturas</span></div>
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#dc2626;"></span><span class="ed-color-label"><b>Rojo</b> — Muebles / obstáculos</span></div>
+          </div>
+          <form method="post" action="{% url 'upload_image' plan_pk=plan.id %}" enctype="multipart/form-data" style="display:contents;">
+            {% csrf_token %}
+            <label class="ed-tool ed-tool--wide" style="cursor:pointer;text-align:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+              Subir croquis
+              <input type="file" name="image" accept="image/*" hidden onchange="this.form.submit()">
+            </label>
+          </form>
+          {% if plan.original_image %}
+            <a href="{% url 'reprocess_plan' plan_pk=plan.id %}" class="ed-route-btn ed-route-btn--clear" style="margin-top:4px;display:block;text-align:center;text-decoration:none;">
+              Re-vectorizar
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Rutas automáticas -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--blue"></i>Rutas automáticas</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Evacuación: pon orígenes verdes. Sanitaria: usa las canecas. Todo va a la salida.</p>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setTool('origen-evac',this)">
+            <span class="ed-marker ed-marker--evac"></span>
+            <span>Colocar origen de evacuación</span>
+          </button>
+          <button class="ed-route-btn ed-route-btn--evac" onclick="SR.generateEvac()">
+            Generar ruta de evacuación
+          </button>
+          <button class="ed-route-btn ed-route-btn--san" onclick="SR.generateSan()">
+            Generar ruta sanitaria (canecas)
+          </button>
+          <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearAll()">
+            Limpiar rutas
+          </button>
+        </div>
+      </div>
+
+      <!-- Evacuación -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--green"></i>Evacuación</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Arrastrá al plano →</p>
+          <div class="ed-icons-grid">
+            <div class="ed-icon-item" draggable="true" data-type="extintor">
+              <div class="ed-icon-preview" data-icon="extintor"></div><span>Extintor</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="botiquin">
+              <div class="ed-icon-preview" data-icon="botiquin"></div><span>Botiquín</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="punto_encuentro">
+              <div class="ed-icon-preview" data-icon="punto_encuentro"></div><span>Pto. Encuentro</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="salida_emergencia">
+              <div class="ed-icon-preview" data-icon="salida_emergencia"></div><span>Salida Emerg.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sanitaria -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--dark"></i>Sanitaria · Canecas</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Arrastrá al plano →</p>
+          <div class="ed-icons-grid">
+            <div class="ed-icon-item" draggable="true" data-type="caneca_ordinaria">
+              <div class="ed-icon-preview" data-icon="caneca_ordinaria"></div><span>Ordinario (negra)</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="caneca_reciclable">
+              <div class="ed-icon-preview" data-icon="caneca_reciclable"></div><span>Reciclaje (blanca)</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="caneca_biosani">
+              <div class="ed-icon-preview" data-icon="caneca_biosani"></div><span>Biosanitario</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="caneca_corto">
+              <div class="ed-icon-preview" data-icon="caneca_corto"></div><span>Cortopunzantes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estructura -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--blue"></i>Estructura</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <div class="ed-icons-grid">
+            <div class="ed-icon-item" draggable="true" data-type="camilla">
+              <div class="ed-icon-preview" data-icon="camilla"></div><span>Camilla</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="bano">
+              <div class="ed-icon-preview" data-icon="bano"></div><span>Baño / WC</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="entrada_salida">
+              <div class="ed-icon-preview" data-icon="entrada_salida"></div><span>Entrada/Salida</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="area_label">
+              <div class="ed-icon-preview" style="display:flex;align-items:center;justify-content:center;">
+                <span class="ed-area-chip">ÁREA</span>
+              </div><span>Etiqueta</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── CANVAS ───────────────────────────────────────────── -->
+    <div class="ed-canvas-wrap" id="canvasWrap">
+
+      <!-- Barra de formato de texto (aparece al seleccionar un texto) -->
+      <div class="ed-text-bar" id="textBar" hidden>
+        <select id="txtFont" onchange="SR.setFont(this.value)" title="Tipo de letra">
+          <option value="DM Sans">DM Sans</option>
+          <option value="Syne">Syne</option>
+          <option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Courier New">Courier New</option>
+        </select>
+        <select id="txtSize" onchange="SR.setTextSize(this.value)" title="Tamaño">
+          <option>12</option><option>14</option><option>16</option><option>18</option>
+          <option>20</option><option>24</option><option>28</option><option>32</option>
+          <option>40</option><option>48</option><option>64</option><option>80</option>
+        </select>
+        <button id="txtBold" class="ed-text-bold" onclick="SR.toggleBold()" title="Negrita"><b>N</b></button>
+      </div>
+
+      <canvas id="floorCanvas"></canvas>
     </div>
 
-</div>
+  </div><!-- /ed-body -->
 
+  <!-- ── MODAL: opciones de exportación ──────────────────────── -->
+  <div class="ed-modal" id="exportModal" hidden>
+    <div class="ed-modal-box">
+      <h3>Exportar PDF</h3>
+      <p>¿Qué rutas querés incluir en el documento?</p>
+      <button class="ed-modal-opt ed-modal-opt--evac" onclick="SR.doExport(['evac'])">
+        <span class="ed-marker ed-marker--evac"></span>
+        Solo ruta de evacuación
+      </button>
+      <button class="ed-modal-opt ed-modal-opt--san" onclick="SR.doExport(['san'])">
+        <span class="ed-marker ed-marker--san"></span>
+        Solo ruta sanitaria
+      </button>
+      <button class="ed-modal-opt ed-modal-opt--both" onclick="SR.doExport(['evac','san'])">
+        Ambas — PDF de 2 páginas
+      </button>
+      <button class="ed-modal-cancel" onclick="SR.closeExport()">Cancelar</button>
+    </div>
+  </div>
+
+</div><!-- /ed-shell -->
 {% endblock %}
 
 {% block extra_scripts %}
-
+{{ plan.canvas_data|json_script:"plan-data" }}
+<script src="{% static 'js/icons.js' %}?v=3"></script>
+<script src="{% static 'js/canvas.js' %}?v=3"></script>
 <script>
-    const SAVED_DATA = null;
+  const PLAN_ID      = {{ plan.id }};
+  const PLAN_NAME    = "{{ plan.name|escapejs }}";
+  const PROJECT_NAME = "{{ plan.project.name|escapejs }}";
+  const SAVE_URL  = "{% url 'plan_save' pk=plan.id %}";
+  const CSRF      = "{{ csrf_token }}";
+  const PLAN_DATA = JSON.parse(document.getElementById('plan-data').textContent);
+  SR.init(PLAN_DATA);
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/fabric@5/dist/fabric.min.js"></script>
-
-<script src="{% static 'js/canvas.js' %}"></script>
-
 {% endblock %}
