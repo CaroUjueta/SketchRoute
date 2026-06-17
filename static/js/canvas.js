@@ -81,6 +81,7 @@ const SR = (() => {
       canvas.loadFromJSON(savedData, () => {
         canvas.renderAll(); fit();
         state.loadingHistory = false;
+        explodeRouteGroups();   // rutas viejas (grupo) → flechas individuales
         ensureHeader();
         pushHistory(true);
         setStatus('Plano cargado');
@@ -360,23 +361,9 @@ const SR = (() => {
     const cx = DOC.w / 2;
     const find = (t) => canvas.getObjects().find(o => o.srType === t);
 
-    // logo: esquina superior izquierda
-    const logo = find('logo');
-    if (logo) {
-      logo.set({ left: 26, top: 18, originX: 'left', originY: 'top' });
-      logo.scaleToWidth(46); logo.setCoords();
-    } else {
-      fabric.loadSVGFromString(LOGO_SVG, (objs, opts) => {
-        const g = fabric.util.groupSVGElements(objs, opts);
-        g.set({ left: 26, top: 18, originX: 'left', originY: 'top', srType: 'logo', srCat: 'header' });
-        g.scaleToWidth(46);
-        canvas.add(g); canvas.requestRenderAll();
-      });
-    }
-
-    // (SYSTEFARMA retirado) — eliminar la marca de planos que la tuvieran
-    const marca = find('marca');
-    if (marca) canvas.remove(marca);
+    // (logo y marca retirados) — eliminarlos de planos que los tuvieran
+    const logo = find('logo'); if (logo) canvas.remove(logo);
+    const marca = find('marca'); if (marca) canvas.remove(marca);
 
     // título del plano: centrado arriba
     if (!find('titulo')) {
@@ -663,7 +650,8 @@ const SR = (() => {
   }
 
   // Una flecha "→" (cola + dos alas) como un solo trazo alineado, en (cx,cy)→ang.
-  function arrowGlyph(cx, cy, ang, color) {
+  // Es un objeto INDEPENDIENTE (se puede mover/rotar/borrar por separado).
+  function arrowGlyph(cx, cy, ang, color, modeKey) {
     const ux = Math.cos(ang), uy = Math.sin(ang), px = -uy, py = ux;
     const L = ARROW_LEN, h = ARROW_SIZE;
     const x1 = cx - ux * L / 2, y1 = cy - uy * L / 2;          // inicio de la cola
@@ -674,6 +662,7 @@ const SR = (() => {
     return new fabric.Path(d, {
       stroke: color, strokeWidth: LINE_W, fill: 'transparent',
       strokeLineCap: 'round', strokeLineJoin: 'round',
+      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
     });
   }
 
@@ -725,21 +714,34 @@ const SR = (() => {
 
     const minD2 = ARROW_MINDIST * ARROW_MINDIST;
     const minG2 = ARROW_MINGLOBAL * ARROW_MINGLOBAL;
-    const parts = [];
+    const parts = [];   // flechas individuales (cada una es un objeto aparte)
     marks.forEach(s => {
       if (items && items.some(r => inRect(s.x, s.y, r, 6))) return;   // no sobre iconos
       if (placed && placed.some(p => (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < minD2)) return;          // mismo color
       if (placedAll && placedAll.some(p => (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < minG2)) return;    // cualquier color (cruces)
       if (placed) placed.push({ x: s.x, y: s.y });
       if (placedAll) placedAll.push({ x: s.x, y: s.y });
-      parts.push(arrowGlyph(s.x, s.y, s.ang, color));
+      parts.push(arrowGlyph(s.x, s.y, s.ang, color, modeKey));
     });
-    if (!parts.length) return null;
-    return new fabric.Group(parts, { srType: 'ruta-' + modeKey, srCat: 'ruta-auto' });
+    return parts;
   }
 
   function clearRoutes(modeKey) {
     canvas.getObjects().filter(o => o.srType === 'ruta-' + modeKey).forEach(o => canvas.remove(o));
+  }
+
+  // Convierte rutas guardadas como grupo (versión antigua) en flechas sueltas,
+  // para poder mover/borrar cada una por separado.
+  function explodeRouteGroups() {
+    canvas.getObjects().slice().forEach(o => {
+      if (o.type !== 'group' || o.srCat !== 'ruta-auto') return;
+      const srType = o.srType;
+      const children = o.getObjects();
+      o._restoreObjectsState();          // devuelve los hijos a coordenadas absolutas
+      canvas.remove(o);
+      children.forEach(ch => { ch.srType = srType; ch.srCat = 'ruta-auto'; if (ch.setCoords) ch.setCoords(); canvas.add(ch); });
+    });
+    canvas.requestRenderAll();
   }
 
   function generate(modeKey) {
@@ -811,8 +813,9 @@ const SR = (() => {
       cells.forEach(c => usedColor.set(c.cy * cols + c.cx, j.color));
       const pts = offsetPath(densify(simplify(cells), 22), laneOf[j.color] || 0, grid, doorCenters);
       const list = placedByColor[j.color] || (placedByColor[j.color] = []);
-      const route = makeRoute(pts, j.color, modeKey, null, list, itemRects, placedAll);
-      if (route) { canvas.add(route); drawn++; }
+      const arrows = makeRoute(pts, j.color, modeKey, null, list, itemRects, placedAll);
+      arrows.forEach(a => canvas.add(a));
+      if (arrows.length) drawn++;
     });
 
     state.suppress = false;
