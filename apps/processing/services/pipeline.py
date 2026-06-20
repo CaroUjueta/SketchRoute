@@ -116,12 +116,8 @@ class ProcessingPipeline:
                         debug[f'{elem_type}_circles'] = len(elem_circles)
                         debug[f'{elem_type}_rects'] = len(elem_rects)
 
-                # solo aplicar skeletonize a trazos gruesos (paredes)
-                # puertas, vanos y muebles ya son líneas finas
-                if mask_data.get('stroke_width', 8) >= 5:
-                    src = lines.skeletonize(binary)
-                else:
-                    src = binary
+                # adelgazar a 1px para que Hough no detecte bordes dobles
+                src = lines.skeletonize(binary)
                 # líneas finas (muebles, puertas) necesitan min_length más bajo
                 hough_min = self.config['hough_min_length']
                 hough_gap = self.config['hough_max_gap']
@@ -246,26 +242,6 @@ class ProcessingPipeline:
                     wall_h_pre_extend, wall_v_pre_extend,
                     door_mask=door_binary,
                 )
-                for g in door_gaps:
-                    all_objects.append({
-                        'type': 'rect',
-                        'version': '5.3.1',
-                        'originX': 'left',
-                        'originY': 'top',
-                        'left': float(g['x'] - g['width'] / 2),
-                        'top': float(g['y'] - g['height'] / 2),
-                        'width': float(g['width']),
-                        'height': float(g['height']),
-                        'fill': '#ffffff',
-                        'stroke': '#000000',
-                        'strokeWidth': 3,
-                        'srType': 'puerta',
-                        'srCat': 'shape',
-                        'selectable': True,
-                        'evented': True,
-                        'hasControls': True,
-                        'hasBorders': True,
-                    })
                 debug['door_gaps'] = len(door_gaps)
 
                 zone_objs = fabric.rooms_to_fabric_zones(room_list)

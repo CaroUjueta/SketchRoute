@@ -331,34 +331,29 @@ const SR = (() => {
 
   /* ── Constructores ──────────────────────────────────────── */
 
-  // Puerta orientada según el arrastre. Si el arrastre es más horizontal, la
-  // abertura va en una pared horizontal (la hoja abre en vertical) y viceversa.
-  // La abertura (vano en la pared) va de `start` al extremo del arco.
+  // Puerta como rectángulo del vano (blanco + borde negro), sin arco.
   function makeDoor(start, end, s) {
     const dx = end.x - start.x, dy = end.y - start.y;
     const sx = Math.sign(dx) || 1, sy = Math.sign(dy) || 1;
-    let hx, hy, ax, ay, sweep;
+    const wt = 4; // mitad del grosor de pared (8px)
+    let x1, y1, x2, y2;
     if (Math.abs(dx) >= Math.abs(dy)) {
-      // pared horizontal: abertura horizontal (start→ax), hoja abre vertical
-      hx = start.x; hy = start.y + sy * s;
-      ax = start.x + sx * s; ay = start.y;
-      sweep = (sx * sy > 0) ? 0 : 1;
+      // pared horizontal: rectángulo se extiende en X, 8px en Y
+      x1 = start.x; x2 = start.x + sx * s;
+      y1 = start.y - wt; y2 = start.y + wt;
     } else {
-      // pared vertical: abertura vertical (start→ay), hoja abre horizontal
-      hx = start.x + sx * s; hy = start.y;
-      ax = start.x; ay = start.y + sy * s;
-      sweep = (sx * sy > 0) ? 1 : 0;
+      // pared vertical: rectángulo se extiende en Y, 8px en X
+      x1 = start.x - wt; x2 = start.x + wt;
+      y1 = start.y; y2 = start.y + sy * s;
     }
-    const path = `M ${start.x} ${start.y} L ${hx} ${hy} M ${hx} ${hy} A ${s} ${s} 0 0 ${sweep} ${ax} ${ay}`;
+    const path = `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${x1} ${y2} Z`;
     const door = new fabric.Path(path, {
-      stroke: '#1f2937', strokeWidth: 2,
-      fill: 'transparent', srType: 'puerta', srCat: 'shape',
+      stroke: '#000000', strokeWidth: 2,
+      fill: '#ffffff', srType: 'puerta', srCat: 'shape',
     });
-    // centro REAL del hueco de paso (entre la bisagra y el extremo del arco)
-    door.srGapX = (start.x + ax) / 2;
-    door.srGapY = (start.y + ay) / 2;
-    // orientación de la abertura (a lo largo de la pared): 'h' u 'v'
-    door.srDir = Math.abs(ax - start.x) >= Math.abs(ay - start.y) ? 'h' : 'v';
+    door.srGapX = (x1 + x2) / 2;
+    door.srGapY = (y1 + y2) / 2;
+    door.srDir = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
     return door;
   }
 

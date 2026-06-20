@@ -19,10 +19,8 @@ def skeletonize(binary):
     skel = np.zeros(binary.shape, dtype=np.uint8)
     temp = binary.copy()
     kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-    while True:
+    while cv2.countNonZero(temp) > 0:
         eroded = cv2.erode(temp, kernel)
-        if cv2.countNonZero(eroded) == 0:
-            break
         dilated = cv2.dilate(eroded, kernel)
         subset = cv2.subtract(temp, dilated)
         skel = cv2.bitwise_or(skel, subset)

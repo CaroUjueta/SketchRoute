@@ -153,6 +153,11 @@ def _make_door(x1, y1, x2, y2, color='#000000', stroke_width=3):
         ['Z'],
     ]
 
+    # dirección del vano para routing
+    sr_dir = 'h' if abs(dx) >= abs(dy) else 'v'
+    gap_cx = (x1 + ax) / 2.0
+    gap_cy = (y1 + ay) / 2.0
+
     return {
         'type': 'path',
         'version': '5.3.1',
@@ -170,6 +175,9 @@ def _make_door(x1, y1, x2, y2, color='#000000', stroke_width=3):
         'path': path_data,
         'srType': 'puerta',
         'srCat': 'shape',
+        'srGapX': gap_cx,
+        'srGapY': gap_cy,
+        'srDir': sr_dir,
         'selectable': True,
         'evented': True,
         'hasControls': True,
@@ -233,6 +241,10 @@ def _make_vano(x1, y1, x2, y2):
     gw = float(max_x - min_x)
     gh = float(max_y - min_y)
 
+    gap_cx = (x1 + x2) / 2.0
+    gap_cy = (y1 + y2) / 2.0
+    sr_dir = 'h' if abs(dx) >= abs(dy) else 'v'
+
     return {
         'type': 'group',
         'version': '5.3.1',
@@ -245,6 +257,9 @@ def _make_vano(x1, y1, x2, y2):
         'objects': [left_obj, right_obj, dashed_obj],
         'srType': 'vano',
         'srCat': 'shape',
+        'srGapX': gap_cx,
+        'srGapY': gap_cy,
+        'srDir': sr_dir,
         'selectable': True,
         'evented': True,
         'hasControls': True,
