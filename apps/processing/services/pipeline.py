@@ -30,14 +30,15 @@ class ProcessingPipeline:
         self.config = {
             'target_w': 1320,
             'target_h': 864,
-            'hough_min_length': 15,
-            'hough_max_gap': 12,
+            'hough_min_length': 25,
+            'hough_max_gap': 20,
             'merge_angle_tol': 3,
-            'merge_dist_tol': 15,
-            'merge_gap_tol': 20,
+            'merge_dist_tol': 20,
+            'merge_gap_tol': 30,
             'extend_max': 400,
-            'close_gap_tol': 15,
+            'close_gap_tol': 20,
             'snap_grid': 10,
+            'min_segment_length': 20,
             'room_min_area': 5000,
             'room_max_area': 500000,
         }
@@ -153,6 +154,7 @@ class ProcessingPipeline:
                     segs = h + v
                 segs = lines.close_gaps(segs, gap_tol=self.config['close_gap_tol'])
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
+                segs = lines._clean_short_segments(segs, min_len=self.config['min_segment_length'])
 
                 all_segments[elem_type] = segs
 
@@ -177,6 +179,7 @@ class ProcessingPipeline:
                 segs = wall_segments_h + wall_segments_v
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
                 segs = lines.close_gaps(segs, gap_tol=20)
+                segs = lines._clean_short_segments(segs, min_len=self.config['min_segment_length'])
                 sh = [s for s in segs if lines._is_horizontal(s)]
                 sv = [s for s in segs if not lines._is_horizontal(s)]
                 graph = rooms.build_intersection_graph(sh, sv)

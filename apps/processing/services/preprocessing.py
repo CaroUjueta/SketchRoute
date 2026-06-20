@@ -184,35 +184,35 @@ def resize_to_canvas(binary, target_w=1320, target_h=864):
 # Mapa de colores BGR → tipo de elemento
 COLOR_MAP = {
     'pared': {
-        'color': (30, 30, 30),       # negro/gris oscuro
+        'color': (30, 30, 30),
         'hsv_ranges': [
-            ((0, 0, 0), (180, 80, 80)),      # grises oscuros
-            ((0, 0, 0), (180, 255, 50)),      # negros puros
+            ((0, 0, 0), (180, 120, 120)),      # grises
+            ((0, 0, 0), (180, 255, 70)),       # negros
         ],
         'stroke': '#1f2937',
         'stroke_width': 8,
     },
     'puerta': {
-        'color': (200, 130, 20),      # azul
+        'color': (200, 130, 20),
         'hsv_ranges': [
-            ((95, 60, 60), (135, 255, 255)),  # azul (rango ampliado)
+            ((90, 50, 50), (140, 255, 255)),   # azul
         ],
         'stroke': '#1d4ed8',
         'stroke_width': 3,
     },
     'mueble': {
-        'color': (50, 50, 200),       # rojo
+        'color': (50, 50, 200),
         'hsv_ranges': [
-            ((0, 80, 80), (10, 255, 255)),     # rojo
-            ((170, 80, 80), (180, 255, 255)),  # rojo (el HSV envuelve)
+            ((0, 60, 60), (12, 255, 255)),     # rojo
+            ((168, 60, 60), (180, 255, 255)),  # rojo (HSV envuelve)
         ],
         'stroke': '#dc2626',
         'stroke_width': 2,
     },
     'vano': {
-        'color': (50, 180, 50),       # verde
+        'color': (50, 180, 50),
         'hsv_ranges': [
-            ((40, 60, 60), (80, 255, 255)),    # verde
+            ((35, 50, 50), (85, 255, 255)),    # verde
         ],
         'stroke': '#059669',
         'stroke_width': 3,

@@ -15,9 +15,8 @@ import math
 
 def _make_line_obj(x1_rel, y1_rel, x2_rel, y2_rel, left, top,
                      stroke, stroke_width, sr_type):
-    """Crea un objeto dict Fabric.js Line."""
-    w = max(abs(x2_rel - x1_rel), stroke_width)
-    h = max(abs(y2_rel - y1_rel), stroke_width)
+    w = abs(x2_rel - x1_rel)
+    h = abs(y2_rel - y1_rel)
     return {
         'type': 'line',
         'version': '5.3.1',
@@ -73,9 +72,8 @@ def segments_to_fabric_lines(segments, sr_type='pared', color='#1f2937',
 
 
 def _make_line(ax1, ay1, ax2, ay2, color, stroke_width, sr_type):
-    """Genera un objeto Line simple (paredes, muebles)."""
     left = float(min(ax1, ax2))
-    top = float(min(ay1, ay2) - stroke_width / 2)
+    top = float(min(ay1, ay2))
     x1 = float(ax1 - left)
     y1 = float(ay1 - top)
     x2 = float(ax2 - left)
@@ -88,7 +86,9 @@ def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
 
     Sigue la misma lógica que makeDoor() en canvas.js:
     - Si el segmento es horizontal, la hoja abre vertical.
-    - Si es vertical, la hoja abre horizontal."""
+    - Si es vertical, la hoja abre horizontal.
+    left/top = esquina superior izquierda del bounding box del path.
+    path coords = relativos al centro del bounding box (pathOffset ≈ (0,0))."""
     dx = x2 - x1
     dy = y2 - y1
     s = max(abs(dx), abs(dy))
@@ -117,17 +117,17 @@ def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
     max_y = max(all_y)
 
     left = float(min_x)
-    top = float(min_y - stroke_width / 2)
-    pw = float(max_x - min_x)
-    ph = float(max_y - min_y + stroke_width)
+    top = float(min_y)
 
-    # coordenadas del path relativas a (left, top)
     r_x1 = float(x1 - left)
     r_y1 = float(y1 - top)
     r_hx = float(hx - left)
     r_hy = float(hy - top)
     r_ax = float(ax - left)
     r_ay = float(ay - top)
+
+    pw = float(max_x - min_x)
+    ph = float(max_y - min_y)
 
     path_data = [
         ['M', r_x1, r_y1],
@@ -163,7 +163,8 @@ def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
 def _make_vano(x1, y1, x2, y2):
     """Genera un Group con dos jambas y línea punteada (vano).
 
-    Sigue la misma lógica que makeVano() en canvas.js."""
+    La posición del grupo es la esquina superior izquierda del bounding box.
+    Los hijos (Line) tienen coordenadas relativas al centro del grupo."""
     dx = x2 - x1
     dy = y2 - y1
     length = math.hypot(dx, dy)
@@ -172,45 +173,59 @@ def _make_vano(x1, y1, x2, y2):
 
     px = -dy / length
     py = dx / length
-    j = 7  # media jamba
+    j = 7
 
-    min_x = min(x1, x2) - j
-    min_y = min(y1, y2) - j
-    max_x = max(x1, x2) + j
-    max_y = max(y1, y2) + j
+    # absolute geometry points
+    pts_x = [x1 + px * j, x1 - px * j, x2 + px * j, x2 - px * j, x1, x2]
+    pts_y = [y1 + py * j, y1 - py * j, y2 + py * j, y2 - py * j, y1, y2]
 
-    left = float(min_x)
-    top = float(min_y)
-    w = float(max_x - min_x)
-    h = float(max_y - min_y)
+    min_x = min(pts_x)
+    max_x = max(pts_x)
+    min_y = min(pts_y)
+    max_y = max(pts_y)
+
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+    group_left = float(min_x)
+    group_top = float(min_y)
 
     left_obj = _make_line_obj(
-        (x1 + px * j) - left, (y1 + py * j) - top,
-        (x1 - px * j) - left, (y1 - py * j) - top,
-        left, top, '#1f2937', 6, 'vano',
+        px * j, py * j,
+        -px * j, -py * j,
+        x1 - cx, y1 - cy,
+        '#1f2937', 6, 'vano',
     )
 
     right_obj = _make_line_obj(
-        (x2 + px * j) - left, (y2 + py * j) - top,
-        (x2 - px * j) - left, (y2 - py * j) - top,
-        left, top, '#1f2937', 6, 'vano',
+        px * j, py * j,
+        -px * j, -py * j,
+        x2 - cx, y2 - cy,
+        '#1f2937', 6, 'vano',
     )
 
+    dcx = (x1 + x2) / 2.0 - cx
+    dcy = (y1 + y2) / 2.0 - cy
     dashed_obj = _make_line_obj(
-        x1 - left, y1 - top,
-        x2 - left, y2 - top,
-        left, top, '#9ca3af', 1.5, 'vano',
+        -dx / 2.0, -dy / 2.0,
+        dx / 2.0, dy / 2.0,
+        dcx, dcy,
+        '#9ca3af', 1.5, 'vano',
     )
     dashed_obj['strokeDashArray'] = [5, 4]
+
+    gw = float(max_x - min_x)
+    gh = float(max_y - min_y)
 
     return {
         'type': 'group',
         'version': '5.3.1',
+        'originX': 'left',
+        'originY': 'top',
+        'left': group_left,
+        'top': group_top,
+        'width': gw,
+        'height': gh,
         'objects': [left_obj, right_obj, dashed_obj],
-        'left': left,
-        'top': top,
-        'width': w,
-        'height': h,
         'srType': 'vano',
         'srCat': 'shape',
         'selectable': True,

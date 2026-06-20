@@ -49,6 +49,7 @@ const SR = (() => {
     tool: 'select', zoom: 1,
     isDown: false, draft: null, start: null, snapPts: [],
     history: [], redoStack: [], loadingHistory: false, suppress: false, dirty: false,
+
   };
 
   const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir'];
@@ -64,6 +65,19 @@ const SR = (() => {
       targetFindTolerance: 10,   // facilita clicar líneas finas para moverlas
       perPixelTargetFind: false,
     });
+
+    /* Monkey-patch _onMouseUp para que un error en _finalizeCurrentTransform
+       (por ej. en 'object:modified' → pushHistory o en setCoords()) no impida
+       que _currentTransform se limpie.  Si _currentTransform queda colgado,
+       el objeto sigue pegado al cursor. */
+    {
+      const orig = canvas._onMouseUp;
+      canvas._onMouseUp = function (e) {
+        try { orig(e); }
+        catch (ex) { console.error('_onMouseUp error:', ex); }
+        canvas._currentTransform = null;
+      };
+    }
 
     paintSidebarIcons();
     bindCanvasEvents();
@@ -125,15 +139,35 @@ const SR = (() => {
 
   function setTool(tool, btnEl) {
     state.tool = tool;
+    state.isDown = false;
+    state.suppress = false;
     document.querySelectorAll('.ed-tool').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
     else if (tool === 'select') {
       const sb = document.getElementById('tool-select');
       if (sb) sb.classList.add('active');
     }
+
+    if (tool === 'erase') {
+      const selected = canvas.getActiveObjects();
+      if (selected.length > 0) {
+        state.suppress = true;
+        selected.forEach(o => canvas.remove(o));
+        state.suppress = false;
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+        pushHistory();
+        setStatus(`${selected.length} elemento(s) borrado(s)`);
+        canvas.selection = false;
+        canvas.skipTargetFind = false;
+        canvas.defaultCursor = 'crosshair';
+        return;
+      }
+    }
+
     const drawing = tool !== 'select';
     canvas.selection = !drawing;
-    canvas.skipTargetFind = drawing && tool !== 'erase';   // el borrador necesita detectar objetos
+    canvas.skipTargetFind = drawing && tool !== 'erase';
     canvas.defaultCursor = tool === 'erase' ? 'crosshair' : (drawing ? 'crosshair' : 'default');
     canvas.discardActiveObject();
     canvas.requestRenderAll();
@@ -185,12 +219,27 @@ const SR = (() => {
   /* ── Eventos de dibujo ──────────────────────────────────── */
 
   function bindCanvasEvents() {
+
     canvas.on('mouse:down', (opt) => {
       const t = state.tool;
       if (t === 'select') return;
 
-      if (t === 'erase') {   // borrador: clic sobre un objeto lo elimina
-        if (opt.target) { canvas.remove(opt.target); canvas.requestRenderAll(); pushHistory(); setStatus('Elemento borrado'); }
+      if (t === 'erase') {
+        const active = canvas.getActiveObjects();
+        if (active.length > 0) {
+          state.suppress = true;
+          active.forEach(o => canvas.remove(o));
+          state.suppress = false;
+          canvas.discardActiveObject();
+          canvas.requestRenderAll();
+          pushHistory();
+          setStatus(`${active.length} elemento(s) borrado(s)`);
+        } else if (opt.target) {
+          canvas.remove(opt.target);
+          canvas.requestRenderAll();
+          pushHistory();
+          setStatus('Elemento borrado');
+        }
         return;
       }
 
@@ -209,7 +258,7 @@ const SR = (() => {
           left: sp.x, top: sp.y, width: 1, height: 1,
           fill: 'rgba(107,114,128,0.10)', stroke: '#6b7280',
           strokeWidth: 2, strokeUniform: true,
-          srType: 'zona', srCat: 'shape',   // cuenta como obstáculo (mueble/área)
+          srType: 'zona', srCat: 'shape',
         });
       } else if (t === 'wall') {
         state.draft = new fabric.Line([sp.x, sp.y, sp.x, sp.y], {
@@ -241,7 +290,6 @@ const SR = (() => {
           top:    Math.min(p.y, state.start.y),
         });
       } else {
-        // prioridad: enganchar a un extremo cercano; si no, snap ortogonal
         let end = snapPoint(p, state.snapPts);
         if (end === p) end = orthoSnap(state.start, p);
         state.draft.set({ x2: end.x, y2: end.y });
@@ -249,7 +297,7 @@ const SR = (() => {
       canvas.requestRenderAll();
     });
 
-    canvas.on('mouse:up', () => {
+    canvas.on('mouse:up', (opt) => {
       if (!state.isDown) return;
       state.isDown = false;
       state.suppress = false;
@@ -275,9 +323,10 @@ const SR = (() => {
       pushHistory();
     });
 
-    canvas.on('object:added',    () => pushHistory());
-    canvas.on('object:modified', () => pushHistory());
-    canvas.on('object:removed',  () => pushHistory());
+    const safePush = () => { try { pushHistory(); } catch (e) { console.error('pushHistory:', e); } };
+    canvas.on('object:added',    safePush);
+    canvas.on('object:modified', safePush);
+    canvas.on('object:removed',  safePush);
   }
 
   /* ── Constructores ──────────────────────────────────────── */
@@ -844,7 +893,9 @@ const SR = (() => {
   function deleteSelected() {
     const objs = canvas.getActiveObjects();
     if (!objs.length) return;
+    state.suppress = true;
     objs.forEach(o => canvas.remove(o));
+    state.suppress = false;
     canvas.discardActiveObject();
     canvas.requestRenderAll();
     pushHistory();
@@ -852,10 +903,14 @@ const SR = (() => {
 
   /* ── Historial ──────────────────────────────────────────── */
 
-  function snapshot() { return JSON.stringify(canvas.toJSON(PROPS)); }
+  function snapshot() {
+    try { return JSON.stringify(canvas.toJSON(PROPS)); }
+    catch (e) { console.error('snapshot error:', e); return null; }
+  }
   function pushHistory(initial = false) {
     if (state.loadingHistory || state.suppress) return;
     const snap = snapshot();
+    if (snap === null) return;
     if (state.history.length && state.history[state.history.length - 1] === snap) return;
     state.history.push(snap);
     if (state.history.length > 60) state.history.shift();
