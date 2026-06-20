@@ -143,11 +143,11 @@ def denoise(binary):
     - opening para eliminar puntitos de ruido aislados
     - elimina componentes conectados muy pequeños"""
     kernel = np.ones((3, 3), np.uint8)
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
 
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
-    min_area = 50
+    min_area = 30
     for i in range(1, n_labels):
         if stats[i, cv2.CC_STAT_AREA] < min_area:
             cleaned[labels == i] = 0
@@ -189,7 +189,7 @@ COLOR_MAP = {
             ((0, 0, 0), (180, 120, 120)),      # grises
             ((0, 0, 0), (180, 255, 70)),       # negros
         ],
-        'stroke': '#1f2937',
+        'stroke': '#777777',
         'stroke_width': 8,
     },
     'puerta': {
@@ -197,7 +197,7 @@ COLOR_MAP = {
         'hsv_ranges': [
             ((90, 50, 50), (140, 255, 255)),   # azul
         ],
-        'stroke': '#1d4ed8',
+        'stroke': '#000000',
         'stroke_width': 3,
     },
     'mueble': {
@@ -206,7 +206,7 @@ COLOR_MAP = {
             ((0, 60, 60), (12, 255, 255)),     # rojo
             ((168, 60, 60), (180, 255, 255)),  # rojo (HSV envuelve)
         ],
-        'stroke': '#dc2626',
+        'stroke': '#000000',
         'stroke_width': 2,
     },
     'vano': {
@@ -214,7 +214,7 @@ COLOR_MAP = {
         'hsv_ranges': [
             ((35, 50, 50), (85, 255, 255)),    # verde
         ],
-        'stroke': '#059669',
+        'stroke': '#000000',
         'stroke_width': 3,
     },
 }

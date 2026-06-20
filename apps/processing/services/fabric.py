@@ -3,11 +3,16 @@
 Convierte segmentos de pared, puertas y muebles en objetos
 Fabric.js que el editor web puede cargar mediante canvas.loadFromJSON().
 
-Cada tipo de elemento tiene su propio color y objeto Fabric.js:
-- Paredes (negro): Line, stroke #1f2937, strokeWidth 8
-- Puertas (azul): Path (línea + arco), stroke #1d4ed8, strokeWidth 3
-- Vanos (verde): Group (jambas + línea punteada), stroke #374151
-- Muebles (rojo): Line, stroke #dc2626, strokeWidth 2
+Todo el dibujo se renderiza en blanco y negro (stroke #000000)
+excepto las paredes (stroke #777777). Los únicos elementos que
+pueden tener color son las flechas de ruta y las canecas,
+añadidas posteriormente en el editor.
+
+Objetos Fabric.js por tipo:
+- Paredes: Line, strokeWidth 8
+- Puertas: Path (rectángulo outline del vano), strokeWidth 3
+- Vanos: Group (jambas + línea punteada), strokeWidth 6/1.5
+- Muebles: Line, strokeWidth 2
 - Recintos: Rect semitransparente como zona"""
 
 import math
@@ -81,36 +86,45 @@ def _make_line(ax1, ay1, ax2, ay2, color, stroke_width, sr_type):
     return _make_line_obj(x1, y1, x2, y2, left, top, color, stroke_width, sr_type)
 
 
-def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
-    """Genera un objeto Path con la forma de puerta (línea + arco).
+def _make_door(x1, y1, x2, y2, color='#000000', stroke_width=3):
+    """Genera un rectángulo outline que marca el vano de la puerta.
 
-    Sigue la misma lógica que makeDoor() en canvas.js:
-    - Si el segmento es horizontal, la hoja abre vertical.
-    - Si es vertical, la hoja abre horizontal.
-    left/top = esquina superior izquierda del bounding box del path.
-    path coords = relativos al centro del bounding box (pathOffset ≈ (0,0))."""
+    El segmento (x1,y1)-(x2,y2) define la hoja de la puerta.
+    Se dibuja un rectángulo con relleno blanco y borde negro,
+    centrado en el muro, con la dimensión perpendicular igual al
+    grosor de la pared (8 px). Así la puerta "corta" la pared
+    visualmente mostrando el vano."""
     dx = x2 - x1
     dy = y2 - y1
     s = max(abs(dx), abs(dy))
     if s < 5:
         return None
+    s *= 1.3
 
     sx = 1 if dx >= 0 else -1
     sy = 1 if dy >= 0 else -1
 
     if abs(dx) >= abs(dy):
-        # puerta horizontal: hoja abre vertical
         hx, hy = x1, y1 + sy * s
         ax, ay = x1 + sx * s, y1
-        sweep = 0 if (sx * sy > 0) else 1
     else:
-        # puerta vertical: hoja abre horizontal
         hx, hy = x1 + sx * s, y1
         ax, ay = x1, y1 + sy * s
-        sweep = 1 if (sx * sy > 0) else 0
 
-    all_x = [x1, hx, ax]
-    all_y = [y1, hy, ay]
+    wt = 4
+    ux = (hx - x1) / s * wt if s > 0 else 0
+    uy = (hy - y1) / s * wt if s > 0 else 0
+    mx = x1 + ux
+    my = y1 + uy
+    amx = ax + ux
+    amy = ay + uy
+    c1x, c1y = mx - ux, my - uy
+    c2x, c2y = amx - ux, amy - uy
+    c3x, c3y = amx + ux, amy + uy
+    c4x, c4y = mx + ux, my + uy
+
+    all_x = [c1x, c2x, c3x, c4x]
+    all_y = [c1y, c2y, c3y, c4y]
     min_x = min(all_x)
     min_y = min(all_y)
     max_x = max(all_x)
@@ -119,21 +133,24 @@ def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
     left = float(min_x)
     top = float(min_y)
 
-    r_x1 = float(x1 - left)
-    r_y1 = float(y1 - top)
-    r_hx = float(hx - left)
-    r_hy = float(hy - top)
-    r_ax = float(ax - left)
-    r_ay = float(ay - top)
+    r_c1x = float(c1x - left)
+    r_c1y = float(c1y - top)
+    r_c2x = float(c2x - left)
+    r_c2y = float(c2y - top)
+    r_c3x = float(c3x - left)
+    r_c3y = float(c3y - top)
+    r_c4x = float(c4x - left)
+    r_c4y = float(c4y - top)
 
     pw = float(max_x - min_x)
     ph = float(max_y - min_y)
 
     path_data = [
-        ['M', r_x1, r_y1],
-        ['L', r_hx, r_hy],
-        ['M', r_hx, r_hy],
-        ['A', s, s, 0, 0, sweep, r_ax, r_ay],
+        ['M', r_c1x, r_c1y],
+        ['L', r_c2x, r_c2y],
+        ['L', r_c3x, r_c3y],
+        ['L', r_c4x, r_c4y],
+        ['Z'],
     ]
 
     return {
@@ -145,7 +162,7 @@ def _make_door(x1, y1, x2, y2, color='#1d4ed8', stroke_width=3):
         'top': top,
         'width': float(max(pw, stroke_width)),
         'height': float(max(ph, stroke_width)),
-        'fill': 'transparent',
+        'fill': '#ffffff',
         'stroke': color,
         'strokeWidth': stroke_width,
         'strokeLineCap': 'round',
@@ -193,14 +210,14 @@ def _make_vano(x1, y1, x2, y2):
         px * j, py * j,
         -px * j, -py * j,
         x1 - cx, y1 - cy,
-        '#1f2937', 6, 'vano',
+        '#000000', 6, 'vano',
     )
 
     right_obj = _make_line_obj(
         px * j, py * j,
         -px * j, -py * j,
         x2 - cx, y2 - cy,
-        '#1f2937', 6, 'vano',
+        '#000000', 6, 'vano',
     )
 
     dcx = (x1 + x2) / 2.0 - cx
@@ -209,7 +226,7 @@ def _make_vano(x1, y1, x2, y2):
         -dx / 2.0, -dy / 2.0,
         dx / 2.0, dy / 2.0,
         dcx, dcy,
-        '#9ca3af', 1.5, 'vano',
+        '#000000', 1.5, 'vano',
     )
     dashed_obj['strokeDashArray'] = [5, 4]
 
@@ -235,8 +252,48 @@ def _make_vano(x1, y1, x2, y2):
     }
 
 
-def rooms_to_fabric_zones(rooms, fill='rgba(107,114,128,0.06)',
-                           stroke='#6b7280', stroke_width=1):
+def circle_to_fabric(cx, cy, r, sr_type='mueble', color='#000000', stroke_width=2):
+    return {
+        'type': 'ellipse',
+        'version': '5.3.1',
+        'originX': 'center',
+        'originY': 'center',
+        'left': float(cx),
+        'top': float(cy),
+        'rx': float(r),
+        'ry': float(r),
+        'fill': 'transparent',
+        'stroke': color,
+        'strokeWidth': stroke_width,
+        'srType': sr_type,
+        'srCat': 'shape',
+        'selectable': True,
+        'evented': True,
+    }
+
+
+def rect_to_fabric(x, y, w, h, sr_type='mueble', color='#000000', stroke_width=2):
+    return {
+        'type': 'rect',
+        'version': '5.3.1',
+        'originX': 'left',
+        'originY': 'top',
+        'left': float(x),
+        'top': float(y),
+        'width': float(w),
+        'height': float(h),
+        'fill': 'transparent',
+        'stroke': color,
+        'strokeWidth': stroke_width,
+        'srType': sr_type,
+        'srCat': 'shape',
+        'selectable': True,
+        'evented': True,
+    }
+
+
+def rooms_to_fabric_zones(rooms, fill='rgba(0,0,0,0.04)',
+                           stroke='#777777', stroke_width=1):
     objects = []
     for room in rooms:
         polygon = room['polygon']
@@ -283,7 +340,7 @@ def build_canvas_json(objects, extra_objects=None, doc_w=1320, doc_h=864):
         'fontFamily': 'Syne',
         'fontSize': 38,
         'fontWeight': 'bold',
-        'fill': '#111827',
+        'fill': '#000000',
         'textAlign': 'center',
         'originX': 'center',
         'originY': 'top',

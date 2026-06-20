@@ -65,7 +65,7 @@ def classify_lines(segments, angle_tolerance=5):
     return horizontals, verticals, others
 
 
-def merge_colinear(segments, angle_tol=3, dist_tol=15, gap_tol=30):
+def merge_colinear(segments, angle_tol=3, dist_tol=15, gap_tol=30, min_len=20):
     """Agrupa segmentos colineales y los fusiona en uno solo.
 
     Para horizontales: agrupa por coordenada Y (con tolerancia),
@@ -83,7 +83,7 @@ def merge_colinear(segments, angle_tol=3, dist_tol=15, gap_tol=30):
     merged = _merge_group(hs, is_horizontal=True, dist_tol=dist_tol, gap_tol=gap_tol)
     merged += _merge_group(vs, is_horizontal=False, dist_tol=dist_tol, gap_tol=gap_tol)
 
-    return _clean_short_segments(merged, min_len=20)
+    return _clean_short_segments(merged, min_len=min_len)
 
 
 def _merge_group(segments, is_horizontal, dist_tol=15, gap_tol=30):
@@ -171,6 +171,83 @@ def _is_horizontal(seg, tol=5):
 
 def _clean_short_segments(segments, min_len):
     return [s for s in segments if np.hypot(s[2] - s[0], s[3] - s[1]) >= min_len]
+
+
+def _is_circle(cnt, min_radius, max_radius, circularity_thresh=0.8, area_ratio_thresh=0.75):
+    area = cv2.contourArea(cnt)
+    if area < np.pi * min_radius * min_radius * 0.8:
+        return None
+    perimeter = cv2.arcLength(cnt, True)
+    if perimeter < 1:
+        return None
+    circularity = 4 * np.pi * area / (perimeter * perimeter)
+    if circularity < circularity_thresh:
+        return None
+    (cx, cy), r = cv2.minEnclosingCircle(cnt)
+    if r < 1:
+        return None
+    area_ratio = area / (np.pi * r * r)
+    if area_ratio < area_ratio_thresh:
+        return None
+    if min_radius <= r <= max_radius:
+        return ('circle', float(cx), float(cy), float(r))
+    return None
+
+
+def _is_rectangle(cnt, min_area=200):
+    area = cv2.contourArea(cnt)
+    if area < min_area:
+        return None
+    perimeter = cv2.arcLength(cnt, True)
+    if perimeter < 1:
+        return None
+    epsilon = 0.04 * perimeter
+    approx = cv2.approxPolyDP(cnt, epsilon, True)
+    if len(approx) != 4:
+        return None
+    if not cv2.isContourConvex(approx):
+        return None
+    x, y, w, h = cv2.boundingRect(cnt)
+    # descartar rectángulos muy alargados (no son muebles típicos)
+    aspect = max(w, h) / max(min(w, h), 1)
+    if aspect > 4:
+        return None
+    return ('rect', float(x), float(y), float(w), float(h))
+
+
+def detect_shapes(binary, min_radius=10, max_radius=200):
+    """Detecta círculos y rectángulos en una máscara binaria.
+
+    Devuelve (circles, rects), donde cada circle es (cx, cy, r)
+    y cada rect es (x, y, w, h)."""
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    circles = []
+    rects = []
+    for cnt in contours:
+        c = _is_circle(cnt, min_radius, max_radius, circularity_thresh=0.8)
+        if c:
+            circles.append(c[1:])
+            continue
+        r = _is_rectangle(cnt, min_area=200)
+        if r:
+            rects.append(r[1:])
+    return circles, rects
+
+
+def mask_out_shapes(binary, circles, rects):
+    """Rellena círculos y rectángulos en la máscara binaria para que
+    Hough no detecte sus bordes como líneas."""
+    result = binary.copy()
+    for cx, cy, r in circles:
+        cv2.circle(result, (int(cx), int(cy)), int(r), 0, -1)
+    for x, y, w, h in rects:
+        padding = 2
+        x1 = max(0, int(x) - padding)
+        y1 = max(0, int(y) - padding)
+        x2 = min(result.shape[1], int(x + w) + padding)
+        y2 = min(result.shape[0], int(y + h) + padding)
+        result[y1:y2, x1:x2] = 0
+    return result
 
 
 def extend_to_intersections(horizontals, verticals, max_extend=200, margin=5):
@@ -349,3 +426,72 @@ def close_gaps(segments, gap_tol=20):
             modified[idx] = True
 
     return result
+
+
+def find_wall_gaps(h_segments, v_segments, door_mask=None, min_gap=15, max_gap=120):
+    """Detecta vanos como gaps entre segmentos de muro.
+
+    Para cada línea de muro ordena los segmentos y busca espacios.
+    Si door_mask se proporciona, solo devuelve gaps con ≥5 %
+    superposición con la máscara. Devuelve lista de dicts
+    {x, y, width, height}."""
+    gaps = []
+
+    lines_h = {}
+    for s in h_segments:
+        x1, y1, x2, y2 = s
+        y = round((y1 + y2) / 2)
+        lines_h.setdefault(y, []).append((min(x1, x2), max(x1, x2)))
+
+    for y, segs in lines_h.items():
+        segs.sort()
+        merged = []
+        for x1, x2 in segs:
+            if not merged:
+                merged.append([x1, x2])
+            else:
+                last = merged[-1]
+                if x1 <= last[1] + 5:
+                    last[1] = max(last[1], x2)
+                else:
+                    gap = x1 - last[1]
+                    if min_gap < gap < max_gap:
+                        gaps.append({'x': (last[1] + x1) / 2, 'y': y, 'width': gap, 'height': 8})
+                    merged.append([x1, x2])
+
+    lines_v = {}
+    for s in v_segments:
+        x1, y1, x2, y2 = s
+        x = round((x1 + x2) / 2)
+        lines_v.setdefault(x, []).append((min(y1, y2), max(y1, y2)))
+
+    for x, segs in lines_v.items():
+        segs.sort()
+        merged = []
+        for y1, y2 in segs:
+            if not merged:
+                merged.append([y1, y2])
+            else:
+                last = merged[-1]
+                if y1 <= last[1] + 5:
+                    last[1] = max(last[1], y2)
+                else:
+                    gap = y1 - last[1]
+                    if min_gap < gap < max_gap:
+                        gaps.append({'x': x, 'y': (last[1] + y1) / 2, 'width': 8, 'height': gap})
+                    merged.append([y1, y2])
+
+    if door_mask is not None and gaps:
+        validated = []
+        for g in gaps:
+            x, y, w, h = int(g['x']), int(g['y']), int(g['width']), int(g['height'])
+            x1 = max(0, x - w // 2 - 4)
+            y1 = max(0, y - h // 2 - 4)
+            x2 = min(door_mask.shape[1] - 1, x + w // 2 + 4)
+            y2 = min(door_mask.shape[0] - 1, y + h // 2 + 4)
+            region = door_mask[y1:y2 + 1, x1:x2 + 1]
+            if region.size > 0 and np.sum(region > 0) / region.size > 0.05:
+                validated.append(g)
+        return validated
+
+    return gaps
