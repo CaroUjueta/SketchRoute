@@ -146,19 +146,6 @@
         </div>
       </div>
 
-      <!-- Señalización automática (NTC) -->
-      <div class="ed-section">
-        <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--green"></i>Señalización NTC</span><span class="ed-chevron">▾</span>
-        </div>
-        <div class="ed-section-bd">
-          <p class="ed-hint">Coloca extintores por cobertura (NTC 2885) y señales de evacuación en los giros de la ruta. Vuelve a pulsar para rehacerla.</p>
-          <button class="ed-route-btn ed-route-btn--evac" onclick="SR.autoSignal()">
-            Señalizar automáticamente
-          </button>
-        </div>
-      </div>
-
       <!-- Evacuación -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
@@ -287,8 +274,8 @@
 
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
-<script src="{% static 'js/icons.js' %}?v=8"></script>
-<script src="{% static 'js/canvas.js' %}?v=8"></script>
+<script src="{% static 'js/icons.js' %}?v=9"></script>
+<script src="{% static 'js/canvas.js' %}?v=9"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";

@@ -1,120 +1,91 @@
-# SketchRoute — Editor Web de Rutas Sanitarias y Evacuación
+# SketchRoute — Generador de Planos de Evacuación y Rutas Sanitarias
 
-> **Estado:** Editor funcional — dibujo manual + generación automática de rutas (cliente)
-> **Cronograma:** 12 Jun — 30 Jul 2026
-> **Entrega final:** Jueves 30 de Julio de 2026
-
----
-
-## ⭐ Editor de planos (implementado)
-
-El editor (`/plans/<id>/editor/`) corre **100% en el navegador** sobre Fabric.js. El
-formato del lienzo es **oficio horizontal (330 × 216 mm)**, igual que el PDF de salida.
-
-### Flujo de trabajo
-
-1. **Crea un plano** desde el detalle del proyecto (queda en oficio horizontal por defecto).
-2. **Dibuja el mapa** con tres tipos de trazo:
-   - **Pared** — línea gruesa; **bloquea** las rutas.
-   - **Mueble** — línea delgada; también bloquea.
-   - **Puerta** (arco de barrido) o **Vano** (abertura básica) — **abren el paso**: son el único lugar por donde una ruta puede cruzar una pared.
-   - Los extremos se **enganchan** automáticamente a extremos de líneas cercanas (snap), para unir tramos.
-3. **Coloca los elementos** arrastrándolos del panel: extintor, botiquín, punto de encuentro, salida; 4 canecas (ordinario=negra, reciclaje=blanca, biosanitario=roja, cortopunzantes=roja con símbolo de peligro); camilla, baño, entrada/salida. Al soltar un elemento el editor vuelve solo a modo selección (un clic basta para volver a seleccionarlo).
-4. **Genera las rutas automáticamente**:
-   - **Evacuación:** coloca "orígenes" verdes (invisibles en el PDF) → cada uno traza una flecha **verde** hasta la salida.
-   - **Sanitaria:** no usa orígenes; **cada caneca es el origen** y genera una flecha **de su color** hasta la salida.
-5. **Exporta a PDF** oficio horizontal. Los orígenes verdes no aparecen.
-
-### Cómo se calculan las rutas (en el cliente)
-
-- El lienzo se rasteriza en una **grilla**; paredes y muebles marcan celdas bloqueadas (con holgura), y puertas/vanos las **liberan**.
-- Se usa **A\*** con movimientos en 4 direcciones → las rutas salen siempre en **ángulos de 90°** y nunca cruzan una pared (solo por puertas/vanos).
-- Las rutas se dibujan estilo **"rayita-flechita"** (línea de guiones + puntas espaciadas).
-- **Fusión:** rutas del mismo color que van al mismo destino comparten tronco (el tramo común se dibuja una sola vez).
-- **Carriles:** rutas de distinto color que comparten pasillo corren **paralelas** con un pequeño desfase, sin encimarse.
-
-> Si una zona queda cerrada por paredes y **sin puerta/vano**, no se genera flecha (aviso: "¿hay un pasillo libre hasta la salida?").
-
-> El pipeline de OpenCV, NetworkX y la señalización NTC descritos más abajo son la **visión completa planeada**; el editor actual ya cubre el dibujo, el ruteo y la exportación del lado del cliente.
+> **Estado (2026-06-22):** Funcional de extremo a extremo — foto de croquis → vectorización (OpenCV) → editor web (Fabric.js) → rutas de evacuación/sanitarias → export PDF.
+> **Cronograma:** 12 Jun — 30 Jul 2026 · **Entrega final:** 30 de Julio de 2026
 
 ---
 
 ## ¿Qué es SketchRoute?
 
-SketchRoute es una aplicación web que convierte croquis dibujados a mano en **planos de evacuación profesionales**, listos para imprimir en formato horizontal carta. Está diseñada para ingenieros, arquitectos, brigadistas y cualquier persona que necesite generar planos de rutas sanitarias y de evacuación de forma rápida, sin usar software CAD.
+SketchRoute convierte un **croquis dibujado a mano** (foto de una hoja) en un **plano de evacuación profesional**: detecta paredes, puertas y muebles, los vectoriza, y en el editor traza automáticamente las flechas de evacuación hacia la salida. Está pensado para brigadistas, ingenieros y cualquiera que necesite un plano de rutas sin usar CAD.
 
-### ¿Qué problema resuelve?
+Hay **dos formas de trabajar**, y se combinan:
 
-Hoy en día, hacer un plano de evacuación implica:
-1. Dibujar el plano a mano o en AutoCAD
-2. Calcular manualmente las rutas de evacuación
-3. Ubicar extintores y señales según normativa (NTC 2885 en Colombia)
-4. Dibujar las flechas de ruta
-5. Exportar a PDF con las medidas y cotas
+1. **Automática (foto → plano):** subes una foto del croquis y el pipeline de visión la vectoriza sola.
+2. **Manual (editor):** dibujas o corriges paredes/puertas/muebles a mano en el editor del navegador.
 
-SketchRoute automatiza todo esto: **dibujas en papel, tomas una foto y el sistema hace el resto.**
+En ambos casos, el editor genera las rutas y el PDF final.
 
 ---
 
-## Flujo de trabajo completo
+## Cómo dibujar el croquis (colores)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. DIBUJO EN PAPEL                                              │
-│  • Papel blanco (tamaño carta, horizontal)                       │
-│  • Paredes de un color (ej: negro/azul)                          │
-│  • Puertas de otro color (ej: rojo)                              │
-│  • Muebles de otro color (ej: verde)                             │
-│  • Señalizar salidas existentes                                  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  2. FOTO & SUBIDA                                                │
-│  • Tomar foto con el celular                                     │
-│  • Subir a la web                                                │
-│  • El sistema procesa con OpenCV                                 │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  3. VISIÓN ARTIFICIAL (OpenCV)                                   │
-│  • Corrección de perspectiva                                     │
-│  • Segmentación por colores (pared/puerta/mueble)                │
-│  • Detección de muros (Hough Lines / LSD)                        │
-│  • Detección de puertas y ventanas                               │
-│  • Vectorización a SVG/JSON                                      │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  4. EDITOR WEB (Fabric.js)                                       │
-│  • Carga automática del plano vectorizado                        │
-│  • Herramientas: seleccionar, pared, puerta, ventana             │
-│  • Corrección asistida (comparar original vs detectado)          │
-│  • Etiquetado de salidas de emergencia                           │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  5. RUTAS DE EVACUACIÓN                                           │
-│  • Conversión del plano a grafo (NetworkX)                       │
-│  • Cálculo de rutas con A* y Dijkstra                            │
-│  • Ruta más cercana a salida por zona                            │
-│  • Detección de zonas sin ruta de escape                         │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  6. SEÑALIZACIÓN AUTOMÁTICA (NTC)                                │
-│  • Extintores: cobertura cada 15m (NTC 2885)                     │
-│  • Señales EXIT / SALIDA en rutas de evacuación                  │
-│  • Botiquines, alarmas, detectores de humo                       │
-│  • Punto de encuentro exterior                                   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  7. EXPORTACIÓN                                                  │
-│  • PDF vectorial horizontal carta (con cotas y medidas)          │
-│  • PNG de alta resolución                                        │
-│  • SVG editable                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+> **Fuente de verdad:** los colores los define el pipeline en `apps/processing/services/preprocessing.py`. La misma leyenda se muestra en la web (pantalla de subida y editor).
+
+| Elemento | Color a dibujar | Efecto en la ruta | Notas |
+|---|---|---|---|
+| **Paredes** | **Negro / lápiz** | Bloquea | Trazo continuo y recto |
+| **Puertas** | **Azul** | Abre el paso | Es el único cruce válido de una pared |
+| **Vanos / aberturas** | **Verde** | Abre el paso | Abertura básica sin arco |
+| **Muebles / obstáculos** | **Rojo** | Bloquea | Contorno del mueble |
+
+**Recomendaciones de foto:** papel cuadriculado o blanco, buena luz, sin sombras ni reflejos, encuadrando toda la hoja. El pipeline filtra la cuadrícula impresa por grosor de trazo, así que el cuaderno cuadriculado funciona bien.
+
+---
+
+## El pipeline de visión (servidor, OpenCV)
+
+Todo el procesamiento de imagen vive en **`apps/processing/services/`** y lo orquesta `ProcessingPipeline.process()` (`pipeline.py`). Son **5 módulos**:
+
+| Módulo | Rol |
+|---|---|
+| `preprocessing.py` | Carga, corrección de perspectiva, detección de la hoja, segmentación por color y reescalado al lienzo |
+| `lines.py` | Detección y limpieza de líneas (Hough, fusión colineal, extensión, recorte, cierre de contorno, cortes de puertas…) |
+| `rooms.py` | Detección de recintos a partir del grafo de muros (ciclos del grafo planar) |
+| `fabric.py` | Conversión de segmentos a objetos Fabric.js + reencuadre para llenar la hoja |
+| `pipeline.py` | Orquestador que encadena todo y devuelve el `canvas_data` |
+
+### Etapas, en orden
+
+1. **Perspectiva** (`correct_perspective`): endereza la hoja solo si el resultado es confiable (conservador, no destruye la imagen).
+2. **Orientación de salida** (`_orient_exit_right`): rota el plano en múltiplos de 90° para que **la salida principal quede a la derecha**. La salida = la puerta con mayor `área × (1 + exterioridad)` — la más grande **y** más pegada al perímetro (la única forma de salir a la calle).
+3. **Segmentación por color** (`segment_by_color`): separa negro/azul/verde/rojo en HSV. Las paredes a lápiz se detectan con **umbral adaptativo + transformada de distancia** (filtro por grosor que descarta la cuadrícula azul impresa).
+4. **Detección de líneas** (`lines.py`): Hough probabilístico sobre las máscaras esqueletizadas, luego:
+   - fusión de segmentos colineales, extensión a intersecciones y recorte de colgajos en esquinas;
+   - **cierre del contorno exterior como rectángulo** (completa paredes demasiado tenues para detectarse);
+   - **muebles** como figuras limpias: se podan las colitas cortas y los extremos libres se estiran hasta la pared cercana (no quedan "volando").
+5. **Recintos** (`rooms.py`): arma el grafo de intersecciones de muros y extrae los ciclos = habitaciones; descarta el recinto envolvente.
+6. **Puertas → huecos reales** (`lines.cut_walls_at_doors`): las puertas que caen sobre un muro **lo cortan**, dejando una abertura real en vez de dibujarse encima de una pared continua. Las puertas que flotan (sin muro) o los fragmentos diminutos se descartan (`keep_doors_on_walls`). Esto es lo que permite que las flechas crucen por la puerta.
+7. **Generación Fabric.js** (`fabric.py`): cada segmento → objeto tipado (`pared`, `puerta`, `vano`, `mueble`, `recinto`) y se **reencuadra** todo para llenar la hoja dejando banda para el título.
+
+> El título NO se incrusta en el pipeline: lo pone el editor.
+
+---
+
+## El editor web (cliente, Fabric.js)
+
+El editor (`/plans/<id>/editor/`) corre **100% en el navegador** sobre **Fabric.js**, en formato **oficio horizontal (330 × 216 mm)**. Toda la lógica está en **`static/js/canvas.js`** (+ `icons.js` para los SVG).
+
+> Importante: el **ruteo de flechas y la exportación a PDF son del lado del cliente** (en `canvas.js`). Las apps Django `routing/`, `signaling/` y `export/services/` son stubs reservados para una futura versión en servidor.
+
+### Flujo en el editor
+
+1. El plano vectorizado se carga automáticamente (o empiezas en blanco y dibujas).
+2. **Dibuja / corrige:** pared (gruesa, bloquea), mueble (delgada, bloquea), puerta (arco) o vano (abertura) que abren el paso. Los extremos se enganchan (snap) a líneas cercanas.
+3. **Coloca elementos** del panel: extintor, botiquín, punto de encuentro, salida, camilla, baño, entrada/salida y 4 canecas (ordinaria, reciclable, biosanitaria, cortopunzantes).
+4. **Genera rutas automáticamente:**
+   - **Evacuación:** cada recinto traza una flecha **verde** hasta la salida (sin colocar puntos de origen visibles).
+   - **Sanitaria:** cada caneca traza una flecha **de su color** hasta la salida.
+5. **Exporta a PDF** oficio horizontal.
+
+### Cómo se calculan las rutas (en el cliente)
+
+- El lienzo se rasteriza en una **grilla** (`GRID = 10 px`); paredes y muebles marcan celdas bloqueadas con holgura (`CLEAR = 20 px`), y las puertas/vanos **liberan** el paso por su abertura.
+- **A\*** con movimientos en 4 direcciones → rutas en ángulos de 90° que solo cruzan por puertas/vanos.
+- El destino de cada ruta es el **centro del hueco** de la puerta de salida (`srGapX/srGapY`).
+- **Fusión:** rutas del mismo color al mismo destino comparten tronco. **Carriles:** rutas de distinto color que comparten pasillo corren paralelas, sin encimarse.
+
+> La señalización automática (extintores por cobertura / señales NTC) está prevista en el roadmap (FASE 6) pero **no está activa** en el editor actual. Los iconos sí se pueden colocar a mano desde el panel.
 
 ---
 
@@ -122,399 +93,135 @@ SketchRoute automatiza todo esto: **dibujas en papel, tomas una foto y el sistem
 
 | Capa | Tecnología | Propósito |
 |---|---|---|
-| Backend | **Django 5.0** | Framework web completo (ORM, admin, auth, templates) |
-| Base de datos | **SQLite3** (dev) / PostgreSQL (prod) | Persistencia de proyectos y planos |
-| Visión artificial | **OpenCV 4.x + NumPy** | Procesamiento de imagen, segmentación por color, detección de líneas |
-| Editor canvas | **Fabric.js 5.x** | Editor interactivo de planos en el navegador |
-| Rutas | **NetworkX** | Construcción de grafos y algoritmos A*, Dijkstra |
-| PDF | **ReportLab** | Generación de PDF vectorial con cotas |
-| SVG | **svgwrite + CairoSVG** | Exportación vectorial y rasterización |
-| Frontend | **Django Templates + CSS plano** | Interfaz clásica del lado del servidor (sin SPA) |
+| Backend | **Django 5** | Web, ORM, admin, auth, templates |
+| Base de datos | **SQLite3** (dev) | Proyectos, planos, jobs |
+| Visión artificial | **OpenCV + NumPy** | Segmentación por color, detección de líneas, recintos |
+| Editor / ruteo / export | **Fabric.js 5.x** (navegador) | Dibujo, A\*, PDF — todo cliente |
+| Frontend | **Django Templates + CSS** | Sin SPA |
 
 ---
 
-## Estructura del proyecto
+## Estructura real del proyecto
 
 ```
 SketchRoute/
-├── manage.py                 # Punto de entrada de Django
-├── db.sqlite3                # Base de datos local
-├── requirements.txt          # Dependencias del proyecto
-├── .gitignore
+├── manage.py
+├── db.sqlite3
+├── requirements.txt
 │
-├── sketchroute/              # Configuración principal de Django
-│   ├── settings.py           # Configuración global
-│   ├── urls.py               # Rutas raíz
-│   ├── wsgi.py               # WSGI para producción
-│   └── asgi.py               # ASGI (futuro)
+├── sketchroute/                 # Config Django (settings, urls, wsgi, asgi)
 │
-├── apps/                     # Todas las aplicaciones Django
-│   ├── __init__.py
-│   │
-│   ├── accounts/             # Registro, login, logout, perfiles
-│   │   ├── models.py         # User (AbstractUser con teléfono/empresa)
-│   │   ├── views.py          # RegisterView, LoginView, LogoutView
-│   │   ├── urls.py           # /accounts/register/, /login/, /logout/
-│   │   └── admin.py
-│   │
-│   ├── projects/             # CRUD de proyectos del usuario
-│   │   ├── models.py         # Project (user, name, description)
-│   │   ├── views.py          # ListView, CreateView, UpdateView, DeleteView
-│   │   ├── urls.py           # /projects/, /create/, /<id>/, etc.
-│   │   └── admin.py
-│   │
-│   ├── plans/                # Planos dentro de un proyecto
-│   │   ├── models.py         # Plan (imagen, escala, orientación, canvas_data)
-│   │   ├── views.py          # Editor canvas
-│   │   ├── urls.py           # /<id>/editor/
-│   │   └── admin.py
-│   │
-│   ├── processing/           # Pipeline de visión artificial
-│   │   ├── models.py         # ProcessingJob (estado, resultado)
-│   │   ├── views.py          # Upload y procesamiento
-│   │   ├── urls.py
-│   │   ├── admin.py
-│   │   └── services/         # Lógica del pipeline
-│   │       ├── upload_service.py      # Recepción de imagen
-│   │       ├── preprocessing.py       # Binarización, ecualización
-│   │       ├── color_segmentation.py  # Separar por colores HSV
-│   │       ├── perspective.py         # Corrección de perspectiva
-│   │       ├── wall_detection.py      # Detección de muros (Hough)
-│   │       ├── room_detection.py      # Segmentación de recintos
-│   │       ├── symbol_detection.py    # Puertas, ventanas, escaleras
-│   │       ├── vectorizer.py          # Conversión a SVG/JSON
-│   │       └── parser.py              # Parseo a objetos del editor
-│   │
-│   ├── routing/              # Algoritmos de rutas de evacuación
-│   │   ├── models.py         # EvacuationRoute (nombre, datos, longitud)
-│   │   ├── views.py          # API de cálculo de rutas
-│   │   ├── urls.py
-│   │   ├── admin.py
+├── apps/
+│   ├── accounts/                # Registro / login / perfiles (User con phone/company)
+│   ├── projects/                # CRUD de proyectos
+│   ├── plans/                   # Modelo Plan + vista del editor
+│   │   └── models.py            # Plan (imagen, escala, orientación, canvas_data…)
+│   ├── processing/              # ⭐ Pipeline de visión (servidor)
+│   │   ├── models.py            # ProcessingJob (estado, resultado)
+│   │   ├── views.py             # upload_image, reprocess, job_status
 │   │   └── services/
-│   │       ├── graph_builder.py   # Plano → grafo NetworkX
-│   │       ├── pathfinder.py      # A*, Dijkstra, BFS
-│   │       ├── nearest_exit.py    # Ruta a salida más cercana
-│   │       └── route_renderer.py  # Geometría de flechas/ruta
-│   │
-│   ├── signaling/            # Motor de señalización NTC
-│   │   ├── models.py         # Signal (tipo, posición, rotación)
-│   │   ├── views.py          # Colocación automática
-│   │   ├── urls.py
-│   │   ├── admin.py
-│   │   ├── rules_engine.py   # Motor de reglas (JSON configurable)
-│   │   ├── coverage.py       # Cobertura de extintores
-│   │   └── signal_placer.py  # Inserción automática
-│   │
-│   └── export/               # Exportación a PDF/PNG/SVG
-│       ├── models.py         # ExportedFile (tipo, archivo)
-│       ├── views.py          # Opciones de exportación
-│       ├── urls.py
-│       ├── admin.py
-│       └── services/
-│           ├── pdf_exporter.py      # ReportLab → PDF horizontal carta
-│           ├── png_exporter.py      # CairoSVG → PNG
-│           ├── svg_exporter.py      # SVG vectorial
-│           └── measure_renderer.py  # Cotas y medidas en el PDF
+│   │       ├── preprocessing.py # perspectiva, hoja, color, reescalado
+│   │       ├── lines.py         # Hough, fusión, cortes de pared, muebles
+│   │       ├── rooms.py         # recintos por grafo
+│   │       ├── fabric.py        # → objetos Fabric.js + reencuadre
+│   │       └── pipeline.py      # orquestador
+│   ├── routing/                 # (stub) reservado para ruteo en servidor
+│   ├── signaling/               # (stub) reservado para señalización en servidor
+│   └── export/                  # (stub) reservado para export en servidor
 │
-├── templates/                # Templates HTML (Django Template Language)
-│   ├── base.html             # Layout base con header, footer, messages
-│   ├── accounts/
-│   │   ├── login.html
-│   │   └── register.html
-│   ├── projects/
-│   │   ├── list.html
-│   │   ├── detail.html
-│   │   ├── form.html
-│   │   └── confirm_delete.html
-│   ├── plans/
-│   │   └── editor.html       # Editor con Fabric.js
-│   ├── processing/
-│   │   └── upload.html
-│   └── export/
-│       └── export_options.html
+├── templates/
+│   ├── plans/editor.html        # Editor Fabric.js (carga icons.js + canvas.js)
+│   ├── processing/upload.html   # Subida de croquis
+│   ├── projects/ · accounts/ · export/
 │
-├── static/                   # Archivos estáticos
-│   ├── css/
-│   │   ├── style.css         # Estilos del sitio (landing, auth, listados)
-│   │   └── editor.css        # Cromo oscuro del editor (papel blanco)
+├── static/
 │   ├── js/
-│   │   ├── main.js           # Utilidades generales
-│   │   ├── icons.js          # Biblioteca de iconos SVG (fuente única)
-│   │   └── canvas.js         # Editor: dibujo, A* de rutas, export PDF
-│   └── img/
+│   │   ├── canvas.js            # ⭐ Editor: dibujo, A* de rutas, export PDF
+│   │   ├── icons.js             # Biblioteca de iconos SVG
+│   │   └── main.js
+│   └── css/  (style.css, editor.css)
 │
-└── media/                    # Archivos subidos por usuarios
-    └── uploads/              # Fotos de croquis
+├── media/                       # Fotos de croquis subidas
+└── qa/                          # Scripts de prueba/diagnóstico del pipeline
+    ├── render.py                # Renderiza el canvas_data a PNG para verificar
+    ├── route_test.py            # Simula buildGrid+A* del editor (rutas → salida)
+    └── diag_*.py                # Volcado de máscaras / componentes
 ```
 
 ---
 
-## Modelo de datos
+## Modelo de datos (activo)
 
 ```
-User (AbstractUser)
-├── phone: CharField
-└── company: CharField
+User (AbstractUser)  → phone, company
 
-Project
-├── user: ForeignKey(User)
-├── name: CharField
-├── description: TextField
-├── created_at: DateTimeField
-└── updated_at: DateTimeField
+Project              → user, name, description, created_at, updated_at
 
-Plan
-├── project: ForeignKey(Project)
-├── name: CharField
-├── original_image: ImageField
-├── scale: FloatField (px/cm)
-├── orientation: CharField (horizontal/vertical)
-├── canvas_data: JSONField (Fabric.js)
-├── is_vectorized: BooleanField
-├── created_at: DateTimeField
-└── updated_at: DateTimeField
+Plan                 → project, name, original_image, scale (px/cm),
+                       orientation, canvas_data (JSON Fabric.js),
+                       is_vectorized, created_at, updated_at
 
-ProcessingJob
-├── plan: OneToOneField(Plan)
-├── status: CharField (pending/processing/completed/failed)
-├── processed_image: ImageField
-├── vector_data: JSONField
-├── error_message: TextField
-├── created_at: DateTimeField
-└── updated_at: DateTimeField
-
-EvacuationRoute
-├── plan: ForeignKey(Plan)
-├── name: CharField
-├── route_data: JSONField
-├── total_length: FloatField (metros)
-└── created_at: DateTimeField
-
-Signal
-├── plan: ForeignKey(Plan)
-├── signal_type: CharField (extinguisher/exit/first_aid/alarm/meeting_point/fire_hose)
-├── position_x: FloatField
-├── position_y: FloatField
-├── rotation: FloatField
-├── auto_placed: BooleanField
-└── created_at: DateTimeField
-
-ExportedFile
-├── plan: ForeignKey(Plan)
-├── file_type: CharField (pdf/png/svg)
-├── file: FileField
-└── created_at: DateTimeField
+ProcessingJob        → plan (1:1), status (pending/processing/completed/failed),
+                       processed_image, vector_data (JSON), error_message,
+                       created_at, updated_at
 ```
 
----
-
-## Pipeline de procesamiento de imagen (OpenCV)
-
-El módulo `processing/services/` implementa el pipeline que convierte una foto de un croquis en papel a un plano vectorial:
-
-### 1. `upload_service.py`
-Recibe la imagen, la valida (formato, tamaño, resolución) y la guarda en el modelo `Plan`.
-
-### 2. `preprocessing.py`
-- Convierte a escala de grises
-- Aplica filtro Gaussiano para reducir ruido
-- Ecualización del histograma para mejorar contraste
-- Binarización adaptativa
-
-### 3. `color_segmentation.py`
-Segmenta la imagen por colores usando espacio de color HSV:
-- **Paredes:** color oscuro (negro, azul oscuro, gris)
-- **Puertas:** color contrastante (rojo, naranja)
-- **Muebles:** color diferente (verde, amarillo)
-- Cada capa de color se procesa por separado
-
-### 4. `perspective.py`
-- Detecta las esquinas del papel (contorno más grande)
-- Aplica transformación de perspectiva para enderezar la imagen
-- Escala la imagen a las dimensiones esperadas
-
-### 5. `wall_detection.py`
-- Aplica Hough Lines Probabilístico o LSD (Line Segment Detector)
-- Filtra líneas por longitud mínima
-- Agrupa líneas colineales cercanas
-- Extiende líneas para formar intersecciones en esquinas
-- Devuelve una lista de segmentos de pared
-
-### 6. `room_detection.py`
-- Usa los contornos cerrados formados por las paredes
-- Aplica flood fill para identificar recintos
-- Etiqueta cada habitación detectada
-- Calcula el área de cada recinto
-
-### 7. `symbol_detection.py`
-- Detecta huecos en las paredes (puertas)
-- Detecta rectángulos con patrón de cruz (ventanas)
-- Detecta espirales o rectángulos con escalones (escaleras)
-- Usa detección de contornos y template matching
-
-### 8. `vectorizer.py`
-- Convierte todas las detecciones a coordenadas vectoriales
-- Genera un JSON con la estructura de objetos del plano
-- También genera un SVG para visualización inmediata
-
-### 9. `parser.py`
-- Toma el JSON del vectorizador
-- Crea los objetos de Fabric.js correspondientes (líneas, rectángulos)
-- Devuelve el `canvas_data` listo para cargar en el editor
-
----
-
-## Algoritmos de rutas (`routing/services/`)
-
-### `graph_builder.py`
-Convierte el plano (paredes, puertas, habitaciones) en un grafo de nodos y aristas usando NetworkX:
-- Los nodos son: intersecciones de paredes, centros de puertas, puntos de interés
-- Las aristas son los pasillos y espacios transitables
-- Peso de arista = distancia euclidiana real en metros
-
-### `pathfinder.py`
-Implementa:
-- **A\* (A estrella):** Ruta óptima con heurística de distancia Manhattan
-- **Dijkstra:** Ruta más corta sin heurística
-- **BFS:** Para encontrar todas las rutas posibles en un área
-
-### `nearest_exit.py`
-- Para cada zona/habitación, encuentra la salida más cercana
-- Genera rutas desde cualquier punto hasta la salida asignada
-- Detecta zonas sin ruta de escape válida
-
-### `route_renderer.py`
-- Convierte la ruta calculada a geometría (flechas, líneas)
-- Genera el JSON para superponer en el canvas
-- Incluye puntos de decisión y direcciones
-
----
-
-## Señalización automática (NTC Colombiana)
-
-El módulo `signaling/` implementa reglas basadas en normativa técnica colombiana:
-
-- **NTC 2885:** Extintores — cobertura de 15m de distancia máxima desde cualquier punto
-- **NTC 1461:** Señales de evacuación — ubicación en cada cambio de dirección
-- **NTC 170:** Colores y símbolos de seguridad
-
-El motor de reglas (`rules_engine.py`) está diseñado para ser configurable mediante JSON, permitiendo actualizar las normas sin cambiar código.
-
----
-
-## Exportación (`export/services/`)
-
-### `pdf_exporter.py`
-- Usa ReportLab para generar PDF vectorial
-- Formato horizontal carta (279.4 × 215.9 mm)
-- Incluye: plano, cotas, señales, rutas, leyenda, datos del proyecto
-- La cuadrícula de fondo opcional ayuda a verificar escala
-
-### `png_exporter.py`
-- Renderiza el canvas a imagen PNG
-- Usa CairoSVG si está disponible, o captura del canvas HTML
-- Resolución configurable (300 DPI para impresión)
-
-### `svg_exporter.py`
-- Genera SVG editable directamente desde los datos del canvas
-- Compatible con Illustrator, Inkscape, etc.
-
-### `measure_renderer.py`
-- Calcula y dibuja cotas lineales en las paredes
-- Muestra las dimensiones de cada habitación
-- Escala las medidas según la escala configurada
+> Los modelos `EvacuationRoute` y `Signal` existen pero **no se usan**: el ruteo y la señalización ocurren en el cliente y se guardan dentro de `Plan.canvas_data`.
 
 ---
 
 ## Cómo empezar
 
 ### Prerrequisitos
-
 - Python 3.10+
 - pip
-- (Opcional) OpenCV instalado en el sistema
 
 ### Instalación
 
 ```bash
-# 1. Clonar el repositorio
+# 1. Clonar
 git clone https://github.com/tu-usuario/SketchRoute.git
 cd SketchRoute
 
-# 2. Crear entorno virtual
+# 2. Entorno virtual
 python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # Linux/Mac
 
-# 3. Activar el entorno
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-
-# 4. Instalar dependencias
+# 3. Dependencias
 pip install -r requirements.txt
 
-# 5. Migrar la base de datos
+# 4. Migrar
 python manage.py migrate
 
-# 6. Crear superusuario (admin)
+# 5. Superusuario
 python manage.py createsuperuser
 
-# 7. Iniciar servidor de desarrollo
+# 6. Servidor de desarrollo
 python manage.py runserver
-
-# 8. Abrir en el navegador
-# http://127.0.0.1:8000/
+# → http://127.0.0.1:8000/
 ```
 
-### Usuarios de prueba
+### Notas de desarrollo
 
-```bash
-# Crear un usuario normal
-python manage.py shell -c "from apps.accounts.models import User; User.objects.create_user('test', 'test@test.com', 'test1234')"
-```
+- En desarrollo se suele correr en el puerto **8001 con `--noreload`** (`python manage.py runserver 8001 --noreload`); al ser `--noreload` hay que **reiniciar** el servidor para que tome cambios del pipeline.
+- **Caché del navegador:** al editar `static/js/canvas.js` o `icons.js` hay que **subir el `?v=N`** en `templates/plans/editor.html` (o recargar con Ctrl+F5). Si no, el navegador sirve el JS viejo y "sale igual".
+- **Verificar el pipeline sin navegador:** `.venv/Scripts/python qa/render.py` genera `qa/out/RESULT.png`; `qa/route_test.py` confirma que todos los recintos llegan a la salida.
 
 ---
 
 ## Roadmap (Fases)
 
-| Fase | Descripción | Fechas | % del proyecto |
+| Fase | Descripción | Fechas | % |
 |---|---|---|---|
 | **FASE 0** | Planificación & Setup | 12–17 Jun | 9% |
-| **FASE 1** | Diseño UX/UI (wireframes, prototipo) | 17–18 Jun | 12% |
+| **FASE 1** | Diseño UX/UI | 17–18 Jun | 12% |
 | **FASE 2** | Motor de Canvas (Fabric.js) | 18–23 Jun | 24% |
-| **FASE 3** | IA de Visión Artificial | 24 Jun–3 Jul | 42% |
-| **FASE 4** | Corrección Asistida | 6–7 Jul | 52% |
-| **FASE 5** | Rutas de Evacuación | 8–15 Jul | 67% |
-| **FASE 6** | Señalización Automática (NTC) | 15–21 Jul | 79% |
-| **FASE 7** | Exportación, Backend & Deploy | 22–30 Jul | 100% |
-
-Ver el archivo `RoadMap_Editor_Evacuacion.xlsx` para el detalle completo de las 53 tareas.
-
----
-
-## Convenciones de dibujo (para el croquis en papel)
-
-Para obtener los mejores resultados con el procesamiento de imagen:
-
-> **Fuente de verdad:** estos colores son los que detecta el pipeline y están
-> definidos en `apps/processing/services/preprocessing.py::COLOR_MAP`. La misma
-> leyenda se muestra en la web (pantalla de subida y editor) generada desde ahí
-> con `drawing_legend()`, así que esta tabla y la interfaz nunca se desfasan.
-
-| Elemento | Color a dibujar | Efecto en la ruta | Notas |
-|---|---|---|---|
-| Paredes | **Negro** (o gris oscuro) | Bloquea | Trazo continuo, líneas rectas |
-| Puertas | **Azul** | Abre el paso | Arco de apertura + línea de la puerta |
-| Vanos / aberturas | **Verde** | Abre el paso | Abertura básica sin arco |
-| Muebles / obstáculos | **Rojo** | Bloquea | Contorno del mueble |
-| Textos | **Negro** | — | Letra clara, sin adornos |
-
-**Recomendaciones:**
-- Usar papel blanco tamaño carta (horizontal)
-- Hacer las líneas de paredes continuas y rectas
-- Diferenciar bien los colores (sin tonos ambiguos)
-- Buena iluminación al tomar la foto
-- Evitar sombras y reflejos
+| **FASE 3** | Visión artificial (OpenCV) | 24 Jun–3 Jul | 42% |
+| **FASE 4** | Corrección asistida | 6–7 Jul | 52% |
+| **FASE 5** | Rutas de evacuación | 8–15 Jul | 67% |
+| **FASE 6** | Señalización automática (NTC) | 15–21 Jul | 79% |
+| **FASE 7** | Exportación, backend & deploy | 22–30 Jul | 100% |
 
 ---
 
@@ -522,8 +229,6 @@ Para obtener los mejores resultados con el procesamiento de imagen:
 
 Uso educativo — Proyecto universitario.
 
----
-
 ## Créditos
 
-Desarrollado por [p1p2gamer26] y [Carito Uwu] como parte del proyecto de Rutas Sanitarias y Evacuación.
+Desarrollado por **p1p2gamer26** y **Carito Uwu** para el proyecto de Rutas Sanitarias y Evacuación.
