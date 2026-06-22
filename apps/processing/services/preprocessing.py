@@ -4,9 +4,18 @@ import numpy as np
 
 def correct_perspective(image):
     """Corrige perspectiva encontrando el contorno del documento y aplicando
-    transformación de homografía. Si no encuentra un cuadrilátero válido
-    o si el cuadrilátero ya forma un rectángulo casi perfecto (sin
-    distorsión), devuelve la imagen original."""
+    transformación de homografía.
+
+    Es CONSERVADORA a propósito: solo aplica la transformación si el
+    cuadrilátero detectado cubre buena parte de la imagen (es la hoja, no
+    un rectángulo dibujado adentro) y si el resultado conserva dimensiones
+    razonables. En cualquier otro caso devuelve la imagen original, porque
+    una corrección equivocada destruye el croquis (lo recorta a un pedazo
+    diminuto). Para una foto de cuaderno razonablemente plana, no corregir
+    es mucho más seguro que corregir mal."""
+    img_h, img_w = image.shape[:2]
+    img_area = img_h * img_w
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(blurred, 50, 150)
@@ -19,13 +28,18 @@ def correct_perspective(image):
 
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
+    pts = None
     for c in contours:
+        # el contorno debe cubrir la mayor parte de la imagen (es la hoja)
+        if cv2.contourArea(c) < 0.5 * img_area:
+            break  # los siguientes son aún más pequeños
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.02 * peri, True)
         if len(approx) == 4:
             pts = approx.reshape(4, 2).astype(np.float32)
             break
-    else:
+
+    if pts is None:
         return image
 
     # verificar si el cuadrilátero ya es casi un rectángulo
@@ -36,6 +50,10 @@ def correct_perspective(image):
     (tl, tr, br, bl) = rect
     w = int(max(dist(bl, br), dist(tl, tr)))
     h = int(max(dist(tl, bl), dist(tr, br)))
+
+    # rechazar correcciones que encogen demasiado la imagen (contorno malo)
+    if w < 0.5 * img_w or h < 0.5 * img_h:
+        return image
 
     dst = np.array([
         [0, 0],
@@ -156,15 +174,26 @@ def denoise(binary):
 
 
 def resize_to_canvas(binary, target_w=1320, target_h=864):
-    """Redimensiona manteniendo aspect ratio y centra en canvas oficio."""
+    """Redimensiona manteniendo aspect ratio y centra en canvas oficio.
+
+    Reserva una banda arriba para el título 'PLANO VECTORIZADO', de modo que
+    el plano nunca se monte sobre el texto."""
     h, w = binary.shape
-    scale = min(target_w / w, target_h / h)
+    # banda superior reservada para el título
+    top_reserve = int(target_h * 0.08)  # ~70 px
+    avail_h = target_h - top_reserve
+    scale = min(target_w / w, avail_h / h)
     nw, nh = int(w * scale), int(h * scale)
     resized = cv2.resize(binary, (nw, nh), interpolation=cv2.INTER_NEAREST)
 
     canvas = np.zeros((target_h, target_w), dtype=np.uint8)
-    x_off = (target_w - nw) // 2
-    y_off = (target_h - nh) // 2
+    # Alinear a la IZQUIERDA (con un margen) en vez de centrar: así el plano
+    # llena el alto de la página y todo el espacio libre queda a la DERECHA,
+    # donde el usuario puede colocar cosas después (espacio de respeto).
+    free_x = target_w - nw
+    margin = int(target_w * 0.02)
+    x_off = min(margin, free_x) if free_x > 0 else 0
+    y_off = top_reserve + (avail_h - nh) // 2
     canvas[y_off:y_off + nh, x_off:x_off + nw] = resized
 
     scale_info = {
@@ -181,7 +210,17 @@ def resize_to_canvas(binary, target_w=1320, target_h=864):
 
 # ── Segmentación por color ─────────────────────────────────
 
-# Mapa de colores BGR → tipo de elemento
+# Mapa de colores BGR → tipo de elemento.
+#
+# Esta es la ÚNICA fuente de verdad de los colores que el usuario debe usar
+# al dibujar el croquis en papel. La leyenda que se muestra en la web
+# (pantalla de subida y editor) se genera a partir de aquí — ver
+# drawing_legend() — para que nunca se desfase de lo que el pipeline detecta.
+#
+# Cada entrada incluye:
+#   display  → color hex para mostrar en la interfaz (aprox. del color real)
+#   label    → color que dibuja la persona, en palabras
+#   purpose  → qué representa ese color en el plano
 COLOR_MAP = {
     'pared': {
         'color': (30, 30, 30),
@@ -191,33 +230,175 @@ COLOR_MAP = {
         ],
         'stroke': '#777777',
         'stroke_width': 8,
+        'display': '#1f2937',
+        'label': 'Negro',
+        'purpose': 'Paredes (bloquean el paso)',
     },
     'puerta': {
         'color': (200, 130, 20),
         'hsv_ranges': [
-            ((90, 50, 50), (140, 255, 255)),   # azul
+            ((85, 20, 20), (145, 255, 255)),   # azul (más tolerante en S/V)
         ],
         'stroke': '#000000',
         'stroke_width': 3,
+        'display': '#1d4ed8',
+        'label': 'Azul',
+        'purpose': 'Puertas con arco (abren el paso)',
     },
     'mueble': {
         'color': (50, 50, 200),
         'hsv_ranges': [
-            ((0, 60, 60), (12, 255, 255)),     # rojo
-            ((168, 60, 60), (180, 255, 255)),  # rojo (HSV envuelve)
+            ((0, 20, 20), (14, 255, 255)),     # rojo (más tolerante en S/V)
+            ((165, 20, 20), (180, 255, 255)),  # rojo (HSV envuelve)
         ],
         'stroke': '#000000',
         'stroke_width': 2,
+        'display': '#dc2626',
+        'label': 'Rojo',
+        'purpose': 'Muebles / obstáculos (bloquean el paso)',
     },
     'vano': {
         'color': (50, 180, 50),
         'hsv_ranges': [
-            ((35, 50, 50), (85, 255, 255)),    # verde
+            ((30, 20, 20), (90, 255, 255)),    # verde (más tolerante en S/V)
         ],
         'stroke': '#000000',
         'stroke_width': 3,
+        'display': '#059669',
+        'label': 'Verde',
+        'purpose': 'Vanos / aberturas (abren el paso)',
     },
 }
+
+# Orden recomendado para mostrar la leyenda al usuario.
+_LEGEND_ORDER = ['pared', 'puerta', 'vano', 'mueble']
+
+
+def drawing_legend():
+    """Devuelve la leyenda de colores para dibujar el croquis, derivada de
+    COLOR_MAP. Cada item: {'display', 'label', 'purpose'}.
+
+    Es la fuente única que consume la interfaz (pantalla de subida), de modo
+    que la guía para el usuario y lo que el pipeline detecta nunca se desfasen."""
+    return [
+        {
+            'display': COLOR_MAP[k]['display'],
+            'label': COLOR_MAP[k]['label'],
+            'purpose': COLOR_MAP[k]['purpose'],
+        }
+        for k in _LEGEND_ORDER if k in COLOR_MAP
+    ]
+
+
+def detect_page_mask(bgr_image):
+    """Aísla la hoja de papel del fondo (escritorio, sombras, dedos).
+
+    La hoja es la región clara grande y conexa. Devuelve una máscara
+    binaria (255 dentro de la hoja) o None si no se puede determinar.
+
+    Esto es crítico: sin esto, la detección de paredes (negro/gris)
+    confunde el fondo oscuro de la foto con muros. Restringiendo todo
+    al interior de la hoja, solo quedan los trazos del dibujo."""
+    h, w = bgr_image.shape[:2]
+    gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # umbral Otsu: separa la hoja brillante del fondo más oscuro
+    _, bright = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # cerrar agujeros (trazos del dibujo dentro de la hoja)
+    k = max(15, int(min(h, w) * 0.02)) | 1
+    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(bright, connectivity=8)
+    if n <= 1:
+        return None
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    page_area = stats[idx, cv2.CC_STAT_AREA]
+
+    # la hoja debe ocupar buena parte de la imagen; si no, no confiamos
+    if page_area < 0.25 * h * w:
+        return None
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    mask[labels == idx] = 255
+
+    # convex hull: la hoja es convexa (rectangular). El hull recupera la
+    # parte inferior que queda en sombra y Otsu descarta, sin tragarse el
+    # escritorio (que está fuera del componente brillante).
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    hull = cv2.convexHull(np.vstack([c for c in cnts]))
+    filled = np.zeros_like(mask)
+    cv2.drawContours(filled, [hull], -1, 255, -1)
+
+    # erosionar un poco para descartar el borde de la hoja y su sombra
+    erode_k = max(5, int(min(h, w) * 0.012)) | 1
+    filled = cv2.erode(filled, np.ones((erode_k, erode_k), np.uint8))
+    return filled
+
+
+def _detect_walls(gray, hsv, page, colored):
+    """Detecta trazos de pared (lápiz negro/gris) sobre papel cuadriculado.
+
+    El reto: la cuadrícula azul es tan fina como el lápiz, así que un umbral
+    de color no las separa. La clave es el GROSOR: la cuadrícula es de ~2px,
+    los trazos a lápiz de ~4px o más.
+
+    Pasos:
+    1. Umbral adaptativo → toda la tinta más oscura que el papel local
+       (robusto a iluminación despareja; no depende de un valor fijo).
+    2. Quitar los píxeles de color (puertas/muebles/vanos) ya detectados.
+    3. Filtro de grosor por distance transform: conserva solo trazos cuyo
+       núcleo supera un radio mínimo (descarta la cuadrícula fina).
+    4. Restringir al interior de la hoja.
+    """
+    h, w = gray.shape[:2]
+    scale = min(h, w)
+
+    block = max(31, int(scale * 0.05)) | 1
+    ink = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, block, 10,
+    )
+
+    # quitar lo que ya es color (dilatado para cubrir el borde del trazo)
+    ink[colored > 0] = 0
+
+    # filtro de grosor: la cuadrícula (~2px) tiene radio ~1; el lápiz ~2+
+    dist = cv2.distanceTransform(ink, cv2.DIST_L2, 3)
+    radius_thr = max(1.5, scale * 0.00125)  # ~1.5 px en una foto de ~1200px
+    core = (dist >= radius_thr).astype(np.uint8) * 255
+    # reconstruir el trazo completo a partir del núcleo grueso
+    seed_k = max(7, int(scale * 0.0075)) | 1
+    seed = cv2.dilate(core, np.ones((seed_k, seed_k), np.uint8))
+    walls = cv2.bitwise_and(ink, seed)
+
+    if page is not None:
+        walls = cv2.bitwise_and(walls, page)
+
+    # descartar componentes chicos: el margen impreso del cuaderno y el logo
+    # quedan en fragmentos punteados/pequeños (la tinta impresa es fina y el
+    # filtro de grosor la deja entrecortada), mientras que los muros a lápiz
+    # son trazos largos y continuos que sobreviven.
+    min_area = int(scale * scale * 0.00025)  # ~360 px en una foto de ~1200px
+    walls = _keep_large_components(walls, min_abs=min_area)
+
+    return walls
+
+
+def _keep_large_components(binary, min_abs=480):
+    """Conserva solo componentes conectados con área >= min_abs px.
+
+    Descarta ruido aislado (logo del cuaderno, fragmentos del margen impreso,
+    sombras) sin tocar los muros, que son trazos largos."""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    if n <= 1:
+        return binary
+    out = np.zeros_like(binary)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] >= min_abs:
+            out[labels == i] = 255
+    return out
 
 
 def segment_by_color(bgr_image):
@@ -225,23 +406,53 @@ def segment_by_color(bgr_image):
 
     Cada píxel se clasifica como pared, puerta, mueble o fondo
     según su color. Devuelve un dict con máscaras binarias y
-    configuraciones para cada tipo."""
-    hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+    configuraciones para cada tipo.
 
-    masks = {}
+    Toda la detección se restringe al interior de la hoja de papel
+    (ver detect_page_mask), de modo que el fondo de la foto nunca se
+    confunde con elementos del plano."""
+    hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+    page = detect_page_mask(bgr_image)
+
+    kernel = np.ones((3, 3), np.uint8)
+
+    # ── 1. Elementos de color (puerta=azul, mueble=rojo, vano=verde) ──
+    color_masks = {}
+    colored_union = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
     for elem_type, cfg in COLOR_MAP.items():
+        if elem_type == 'pared':
+            continue
         combined = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
         for low, high in cfg['hsv_ranges']:
-            mask = cv2.inRange(hsv, np.array(low), np.array(high))
-            combined = cv2.bitwise_or(combined, mask)
-
-        # limpiar la máscara
-        kernel = np.ones((3, 3), np.uint8)
+            combined = cv2.bitwise_or(
+                combined, cv2.inRange(hsv, np.array(low), np.array(high)),
+            )
+        if page is not None:
+            combined = cv2.bitwise_and(combined, page)
         combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel, iterations=1)
         combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel, iterations=1)
+        combined = denoise(combined)
+        color_masks[elem_type] = combined
+        colored_union = cv2.bitwise_or(colored_union, combined)
 
+    # dilatar el color para que su borde no se cuele en las paredes
+    colored_dil = cv2.dilate(colored_union, np.ones((9, 9), np.uint8))
+
+    # ── 2. Paredes (lápiz negro/gris) con filtro de grosor ──
+    wall_binary = _detect_walls(gray, hsv, page, colored_dil)
+    wall_binary = cv2.morphologyEx(wall_binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+    wall_binary = denoise(wall_binary)
+
+    # ── 3. Ensamblar resultado ──
+    masks = {}
+    for elem_type, cfg in COLOR_MAP.items():
+        if elem_type == 'pared':
+            binary = wall_binary
+        else:
+            binary = color_masks[elem_type]
         masks[elem_type] = {
-            'binary': denoise(combined),
+            'binary': binary,
             'stroke': cfg['stroke'],
             'stroke_width': cfg['stroke_width'],
             'sr_type': elem_type,
@@ -250,11 +461,57 @@ def segment_by_color(bgr_image):
     return masks
 
 
+def _content_bbox(ref_binary, full_shape, pad_frac=0.008):
+    """Bounding box del contenido (las paredes) con padding, para recortar
+    los márgenes en blanco y que el plano llene la página.
+
+    Robusto a fragmentos espurios lejanos (paredes tenues sueltas en un borde):
+    parte del componente conectado más grande y solo suma los componentes
+    cercanos (que forman parte del edificio), descartando los aislados. Así el
+    recorte queda pegado al edificio y no deja un hueco vacío al costado."""
+    if ref_binary is None or cv2.countNonZero(ref_binary) == 0:
+        return None
+    h, w = full_shape
+    ys, xs = np.where(ref_binary > 0)
+    x1, y1, x2, y2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    pad = int(min(h, w) * pad_frac)
+    x1 = max(0, int(x1) - pad)
+    y1 = max(0, int(y1) - pad)
+    x2 = min(w, int(x2) + pad)
+    y2 = min(h, int(y2) + pad)
+    if x2 - x1 < 10 or y2 - y1 < 10:
+        return None
+    return (x1, y1, x2, y2)
+
+
 def resize_mask_to_canvas(mask_dict, target_w=1320, target_h=864):
-    """Redimensiona todas las máscaras al canvas oficio."""
+    """Redimensiona todas las máscaras al canvas oficio.
+
+    Antes de escalar, recorta todas las máscaras al bounding box de las
+    paredes (el edificio): así el plano LLENA la página en vez de quedar
+    chico con mucho blanco alrededor, y de paso descarta artefactos que
+    queden fuera del edificio (logo, margen impreso). Si no hay paredes,
+    usa la unión de todo el contenido."""
+    # referencia de recorte: paredes; si no hay, unión de todo
+    ref = mask_dict.get('pared', {}).get('binary')
+    if ref is None or cv2.countNonZero(ref) == 0:
+        ref = None
+        for data in mask_dict.values():
+            b = data['binary']
+            ref = b.copy() if ref is None else cv2.bitwise_or(ref, b)
+
+    crop = None
+    if ref is not None:
+        any_binary = next(iter(mask_dict.values()))['binary']
+        crop = _content_bbox(ref, any_binary.shape)
+
     result = {}
     for elem_type, data in mask_dict.items():
-        binary, info = resize_to_canvas(data['binary'], target_w, target_h)
+        b = data['binary']
+        if crop is not None:
+            x1, y1, x2, y2 = crop
+            b = b[y1:y2, x1:x2]
+        binary, info = resize_to_canvas(b, target_w, target_h)
         result[elem_type] = {
             'binary': binary,
             'stroke': data['stroke'],

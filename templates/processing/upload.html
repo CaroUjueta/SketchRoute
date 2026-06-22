@@ -3,7 +3,17 @@
 {% block content %}
 <div class="upload-form">
     <h1>Subir croquis para "{{ plan.name }}"</h1>
-    <p>Toma una foto de tu croquis en papel blanco y súbela aquí. Usa colores diferenciados para paredes, puertas y muebles.</p>
+    <p>Toma una foto de tu croquis en papel blanco y súbela aquí. Dibuja cada elemento con su color exacto para que el sistema lo detecte bien:</p>
+
+    <div class="ed-color-guide" style="margin:0 0 1.2rem;">
+        {% for c in legend %}
+        <div class="ed-color-row" style="display:flex;align-items:center;gap:.55rem;margin:.3rem 0;">
+            <span class="ed-color-swatch" style="display:inline-block;width:18px;height:18px;border-radius:4px;border:1px solid #888;background:{{ c.display }};"></span>
+            <span class="ed-color-label"><b>{{ c.label }}</b> — {{ c.purpose }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="file" name="image" accept="image/*" capture="environment" required>

@@ -40,7 +40,9 @@ const CENTER_W = 1.6;  // peso del centrado (alejarse de paredes)
 const DOOR_R = 60;     // radio en el que las rutas convergen al centro de una puerta
 const PREF_STEP = 0.35;// costo (casi gratis) de seguir un corredor ya trazado → confluencia
 
-const isSalida = (o) => o.srType === 'salida_emergencia' || o.srType === 'entrada_salida';
+// Una salida es destino de ruta solo si la puso el usuario; las señales de
+// dirección que coloca la señalización automática (srAuto) NO son destinos.
+const isSalida = (o) => (o.srType === 'salida_emergencia' || o.srType === 'entrada_salida') && !o.srAuto;
 
 const SR = (() => {
   let canvas = null;
@@ -49,10 +51,10 @@ const SR = (() => {
     tool: 'select', zoom: 1,
     isDown: false, draft: null, start: null, snapPts: [],
     history: [], redoStack: [], loadingHistory: false, suppress: false, dirty: false,
-
+    evacTurns: [],   // giros de la última ruta de evacuación (para señales NTC)
   };
 
-  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir'];
+  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srAuto'];
 
   /* ── Inicialización ─────────────────────────────────────── */
 
@@ -82,7 +84,7 @@ const SR = (() => {
     paintSidebarIcons();
     bindCanvasEvents();
     bindDragDrop();
-    bindBackgroundUpload();
+    // bindBackgroundUpload(); // eliminado — el upload de croquis va solo por el sidebar
     bindKeyboard();
     canvas.on('selection:created', syncTextBar);
     canvas.on('selection:updated', syncTextBar);
@@ -115,6 +117,10 @@ const SR = (() => {
       pushHistory(true);
     }
   }
+
+  /* ── Croquis original como referencia ───────────────────────
+     Desactivado por solicitud del usuario — la imagen de fondo
+     no debe aparecer en el editor; solo el resultado vectorizado. */
 
   /* ── Vista / zoom ───────────────────────────────────────── */
 
@@ -418,13 +424,19 @@ const SR = (() => {
     const logo = find('logo'); if (logo) canvas.remove(logo);
     const marca = find('marca'); if (marca) canvas.remove(marca);
 
-    // título del plano: centrado arriba
-    if (!find('titulo')) {
+    // título del plano: centrado arriba. Si no existe, se crea con el nombre de
+    // la droguería + la ruta. Si existe pero quedó el viejo "PLANO VECTORIZADO"
+    // (que metía el pipeline), se reemplaza por el título correcto.
+    const titulo = find('titulo');
+    if (!titulo) {
       canvas.add(new fabric.IText(titleFor(null), {
         left: cx, top: 22, originX: 'center', originY: 'top',
         fontFamily: 'Syne', fontWeight: 'bold', fontSize: 38, fill: '#111827',
         textAlign: 'center', srType: 'titulo', srCat: 'title',
       }));
+    } else if (/PLANO VECTORIZADO/i.test(titulo.text || '')) {
+      titulo.set({ text: titleFor(null), left: cx });
+      titulo.setCoords && titulo.setCoords();
     }
   }
 
@@ -783,6 +795,33 @@ const SR = (() => {
     canvas.getObjects().filter(o => o.srType === 'ruta-' + modeKey).forEach(o => canvas.remove(o));
   }
 
+  /* ── Avisos de conectividad (P3) ────────────────────────────
+     Cuando un origen/caneca no tiene ruta hasta la salida (recinto
+     cerrado sin puerta/vano), en vez de fallar en silencio marcamos el
+     punto con un aviso rojo. srHidden → no sale en el PDF. */
+  function clearWarnings() {
+    canvas.getObjects().filter(o => o.srType === 'aviso-conexion').forEach(o => canvas.remove(o));
+  }
+
+  function markUnreachable(center) {
+    const ring = new fabric.Circle({
+      left: center.x, top: center.y, radius: 20, originX: 'center', originY: 'center',
+      fill: 'rgba(220,38,38,0.10)', stroke: '#dc2626', strokeWidth: 2.5,
+      strokeDashArray: [5, 4],
+    });
+    const tag = new fabric.Text('⚠ sin salida — agrega puerta/vano', {
+      left: center.x, top: center.y + 24, originX: 'center', originY: 'top',
+      fontFamily: 'DM Sans', fontSize: 14, fontWeight: 'bold', fill: '#dc2626',
+    });
+    const g = new fabric.Group([ring, tag], {
+      originX: 'center', originY: 'center',
+      left: center.x, top: center.y,
+      selectable: false, evented: false,
+      srType: 'aviso-conexion', srCat: 'aviso', srHidden: true,
+    });
+    canvas.add(g);
+  }
+
   // Convierte rutas guardadas como grupo (versión antigua) en flechas sueltas,
   // para poder mover/borrar cada una por separado.
   function explodeRouteGroups() {
@@ -799,15 +838,29 @@ const SR = (() => {
 
   function generate(modeKey) {
     const all = canvas.getObjects();
-    const goals = all.filter(isSalida);
-    if (!goals.length) { setStatus('Coloca una salida (Salida Emerg. o Entrada/Salida)', 'warn'); return; }
+    // Metas (salidas): las que puso el usuario; si no hay, se usa la puerta más
+    // ancha como salida automática hacia la calle (sin colocar ícono).
+    const goalObjs = all.filter(isSalida);
+    let goalPoints = goalObjs.map(g => g.getCenterPoint());
+    if (!goalPoints.length) {
+      const auto = autoExitPoint();
+      if (!auto) { setStatus('Coloca una salida o una puerta', 'warn'); return; }
+      goalPoints = [auto];
+    }
 
     // jobs = { center, color }
     let jobs;
     if (modeKey === 'evac') {
+      // Orígenes: los que puso el usuario; si no hay, se generan desde el
+      // centro de cada recinto (sin colocar puntos verdes visibles).
       const origins = all.filter(o => o.srType === 'origen-evac');
-      if (!origins.length) { setStatus('Coloca al menos un origen verde', 'warn'); return; }
-      jobs = origins.map(o => ({ center: o.getCenterPoint(), color: EVAC_COLOR }));
+      if (origins.length) {
+        jobs = origins.map(o => ({ center: o.getCenterPoint(), color: EVAC_COLOR }));
+      } else {
+        const rooms = all.filter(o => o.srType === 'recinto');
+        if (!rooms.length) { setStatus('No hay recintos para trazar rutas', 'warn'); return; }
+        jobs = rooms.map(r => ({ center: r.getCenterPoint(), color: EVAC_COLOR }));
+      }
     } else {
       const canecas = all.filter(o => typeof o.srType === 'string' && o.srType.startsWith('caneca_'));
       if (!canecas.length) { setStatus('Coloca al menos una caneca', 'warn'); return; }
@@ -816,16 +869,19 @@ const SR = (() => {
 
     state.suppress = true;
     clearRoutes(modeKey);
+    clearWarnings();
+    if (modeKey === 'evac') state.evacTurns = [];   // se recalculan abajo (señales NTC)
+    const unreachable = [];     // centros de orígenes/canecas sin ruta a la salida
     const grid = buildGrid();
     const cols = grid.cols;
-    const goalCells = goals.map(g => nearestFree(grid, toCell(g.getCenterPoint()).cx, toCell(g.getCenterPoint()).cy)).filter(Boolean);
+    const goalCells = goalPoints.map(p => nearestFree(grid, toCell(p).cx, toCell(p).cy)).filter(Boolean);
     const doorCenters = all.filter(o => o.srType === 'puerta' || o.srType === 'vano')
       .map(o => (typeof o.srGapX === 'number') ? { x: o.srGapX, y: o.srGapY } : o.getCenterPoint());
 
     // preparar: celda de inicio + meta más cercana
     const prepared = jobs.map(j => {
       const sCell = nearestFree(grid, toCell(j.center).cx, toCell(j.center).cy);
-      if (!sCell) return null;
+      if (!sCell) { unreachable.push(j.center); return null; }
       let best = null, bestD = Infinity, gi = -1;
       goalCells.forEach((gc, i) => { const d = heur(sCell, gc); if (d < bestD) { bestD = d; best = gc; gi = i; } });
       return best ? { ...j, sCell, goalCell: best, goalIdx: gi, dist: bestD } : null;
@@ -853,7 +909,7 @@ const SR = (() => {
     let drawn = 0;
     prepared.forEach(j => {
       let cells = astar(grid, j.sCell, j.goalCell, usedColor);
-      if (!cells || cells.length < 2) return;
+      if (!cells || cells.length < 2) { unreachable.push(j.center); return; }
 
       // truncar al primer punto ya cubierto por una ruta del MISMO color (fusión)
       let cut = cells.length;
@@ -864,24 +920,145 @@ const SR = (() => {
       if (cells.length < 2) return;
 
       cells.forEach(c => usedColor.set(c.cy * cols + c.cx, j.color));
-      const pts = offsetPath(densify(simplify(cells), 22), laneOf[j.color] || 0, grid, doorCenters);
+      const simple = simplify(cells);
+      // guardar los giros de evacuación → ahí van las señales de dirección (NTC)
+      if (modeKey === 'evac') {
+        for (let i = 1; i < simple.length - 1; i++) state.evacTurns.push(simple[i]);
+      }
+      const pts = offsetPath(densify(simple, 22), laneOf[j.color] || 0, grid, doorCenters);
       const list = placedByColor[j.color] || (placedByColor[j.color] = []);
       const arrows = makeRoute(pts, j.color, modeKey, null, list, itemRects, placedAll);
       arrows.forEach(a => canvas.add(a));
       if (arrows.length) drawn++;
     });
 
+    unreachable.forEach(c => markUnreachable(c));
+
     state.suppress = false;
     pushHistory();
-    setStatus(
-      drawn ? `${drawn} ruta(s) generada(s)` : 'No se encontró ruta (¿hay un pasillo libre hasta la salida?)',
-      drawn ? 'ok' : 'err'
-    );
+    if (drawn && !unreachable.length) {
+      setStatus(`${drawn} ruta(s) generada(s)`, 'ok');
+    } else if (drawn && unreachable.length) {
+      setStatus(`${drawn} ruta(s); ${unreachable.length} sin salida — revisa puertas/vanos (marcado en rojo)`, 'warn');
+    } else {
+      setStatus('Ninguna ruta: cada recinto necesita una puerta/vano hacia la salida (marcado en rojo)', 'err');
+    }
   }
 
   const generateEvac = () => generate('evac');
   const generateSan  = () => generate('san');
-  const clearAll = () => { state.suppress = true; clearRoutes('evac'); clearRoutes('san'); state.suppress = false; pushHistory(); setStatus('Rutas eliminadas'); };
+
+  // Salida "virtual" automática = centro del hueco de la puerta más ancha
+  // (la principal hacia la calle). Se usa cuando el usuario no colocó una
+  // salida a mano, para poder generar las flechas sin pasos manuales.
+  function autoExitPoint() {
+    const doors = canvas.getObjects().filter(o => o.srType === 'puerta' || o.srType === 'vano');
+    if (!doors.length) return null;
+    let best = null, bestW = -1;
+    doors.forEach(d => {
+      const r = d.getBoundingRect(true, true);
+      const w = Math.max(r.width, r.height);
+      if (w > bestW) { bestW = w; best = d; }
+    });
+    return (typeof best.srGapX === 'number')
+      ? { x: best.srGapX, y: best.srGapY } : best.getCenterPoint();
+  }
+
+  const clearAll = () => { state.suppress = true; clearRoutes('evac'); clearRoutes('san'); clearWarnings(); state.suppress = false; pushHistory(); setStatus('Rutas eliminadas'); };
+
+  /* ════════════ SEÑALIZACIÓN AUTOMÁTICA (NTC) ══════════════
+     Coloca extintores por cobertura (NTC 2885 ~15 m) y señales de
+     evacuación en los giros de la ruta. Lo automático queda con srAuto=true
+     para distinguirlo de lo que el usuario pone a mano (y poder rehacerlo). */
+
+  // Radio de cobertura del extintor en px. Calibrable: con la escala real del
+  // plano, 15 m ≈ PLAN_SCALE(px/cm) * 1500. Default razonable para el lienzo.
+  const COVERAGE_PX = (typeof PLAN_SCALE !== 'undefined' && PLAN_SCALE > 1)
+    ? PLAN_SCALE * 1500 : 230;
+
+  // Coloca un icono sin tocar la herramienta/selección activa (uso interno).
+  function spawnIcon(type, x, y, size, auto) {
+    const svg = SR_ICONS[type];
+    if (!svg) return;
+    fabric.loadSVGFromString(svg, (objects, options) => {
+      const obj = fabric.util.groupSVGElements(objects, options);
+      obj.set({ left: x, top: y, originX: 'center', originY: 'center' });
+      obj.scaleToWidth(size);
+      obj.srType = type; obj.srCat = 'icon';
+      if (auto) obj.srAuto = true;
+      canvas.add(obj);
+      canvas.requestRenderAll();
+    });
+  }
+
+  // Huella del edificio: bounding box de paredes/recintos. Los extintores solo
+  // se colocan aquí dentro → no quedan flotando fuera del plano.
+  function buildingFootprint() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, found = false;
+    canvas.getObjects().forEach((o) => {
+      if (o.srType !== 'pared' && o.srType !== 'recinto') return;
+      const r = o.getBoundingRect(true, true);
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.left + r.width); maxY = Math.max(maxY, r.top + r.height);
+      found = true;
+    });
+    if (!found) return { left: 0, top: 0, right: DOC.w, bottom: DOC.h };
+    return { left: minX + CLEAR, top: minY + CLEAR, right: maxX - CLEAR, bottom: maxY - CLEAR };
+  }
+
+  function placeExtinguishersByCoverage(grid, radius) {
+    const fp = buildingFootprint();
+    const spacing = radius * 1.4;            // solapa círculos → cobertura completa
+    const minD2 = (spacing * 0.7) ** 2;
+    const spots = [];
+    for (let y = fp.top + spacing / 2; y < fp.bottom; y += spacing) {
+      for (let x = fp.left + spacing / 2; x < fp.right; x += spacing) {
+        const fc = nearestFree(grid, Math.floor(x / GRID), Math.floor(y / GRID));
+        if (!fc) continue;
+        const p = cellCenter(fc.cx, fc.cy);
+        // dentro de la huella y con área transitable cerca (no en muros/afuera)
+        if (p.x < fp.left || p.x > fp.right || p.y < fp.top || p.y > fp.bottom) continue;
+        if (Math.hypot(p.x - x, p.y - y) > spacing) continue;
+        if (spots.some(s => (s.x - p.x) ** 2 + (s.y - p.y) ** 2 < minD2)) continue;
+        spots.push(p);
+      }
+    }
+    spots.forEach(p => spawnIcon('extintor', p.x, p.y, 40, true));
+    return spots.length;
+  }
+
+  function placeEvacDirectionSigns() {
+    const turns = state.evacTurns || [];
+    const minD2 = 70 * 70;
+    const spots = [];
+    turns.forEach(p => {
+      if (!spots.some(s => (s.x - p.x) ** 2 + (s.y - p.y) ** 2 < minD2)) spots.push(p);
+    });
+    spots.forEach(p => spawnIcon('salida_emergencia', p.x, p.y, 34, true));
+    return spots.length;
+  }
+
+  function autoSignal() {
+    // Las señales de dirección van en los giros de la ruta de evacuación. Si
+    // todavía no se generó la ruta, generarla ahora para poder señalizar los
+    // giros en un solo clic (antes quedaba sin señales hasta generar la ruta).
+    if (!state.evacTurns || !state.evacTurns.length) {
+      generate('evac');
+    }
+    state.suppress = true;
+    // rehacer: quitar la señalización automática previa (no la manual)
+    canvas.getObjects().filter(o => o.srAuto).forEach(o => canvas.remove(o));
+    const grid = buildGrid();
+    const ext = placeExtinguishersByCoverage(grid, COVERAGE_PX);
+    const dirs = placeEvacDirectionSigns();
+    state.suppress = false;
+    pushHistory();
+    const hint = dirs ? '' : ' (genera la ruta de evacuación para señalizar los giros)';
+    setStatus(
+      `Señalización: ${ext} extintor(es), ${dirs} señal(es) de evacuación` + hint,
+      (ext || dirs) ? 'ok' : 'warn',
+    );
+  }
 
   /* ── Selección / borrado ────────────────────────────────── */
 
@@ -1118,7 +1295,7 @@ const SR = (() => {
     init, setTool, deleteSelected, undo, redo,
     zoomIn, zoomOut, zoomReset, save,
     exportPDF, doExport, closeExport,
-    generateEvac, generateSan, clearAll,
+    generateEvac, generateSan, clearAll, autoSignal,
     setFont, setTextSize, toggleBold,
   };
 })();

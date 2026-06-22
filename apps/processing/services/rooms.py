@@ -209,7 +209,50 @@ def find_rooms(graph_data, min_area=5000, max_area=500000):
 
     # eliminar duplicados (ciclos que son el mismo recinto)
     unique_rooms = _deduplicate_rooms(rooms)
+    # eliminar recintos que envuelven a otros (el contorno del edificio
+    # entero aparece como un recinto gigante redundante encima de las
+    # subdivisiones reales) → conservar las subdivisiones
+    unique_rooms = _remove_enclosing_rooms(unique_rooms)
     return unique_rooms
+
+
+def _remove_enclosing_rooms(rooms, contain_ratio=0.85):
+    """Descarta recintos que contienen a otro recinto más chico.
+
+    Un recinto A se elimina si existe otro B (más chico) cuyo bounding box
+    está casi totalmente dentro del de A. Así se quita el rectángulo del
+    edificio completo y se conservan las habitaciones subdivididas."""
+    if len(rooms) <= 1:
+        return rooms
+
+    def bbox(poly):
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        return (min(xs), min(ys), max(xs), max(ys))
+
+    boxes = [bbox(r['polygon']) for r in rooms]
+    areas = [r['area'] for r in rooms]
+
+    drop = set()
+    for i in range(len(rooms)):
+        for j in range(len(rooms)):
+            if i == j or areas[j] >= areas[i]:
+                continue
+            bi, bj = boxes[i], boxes[j]
+            # área de bj contenida dentro de bi
+            xi = max(bi[0], bj[0])
+            yi = max(bi[1], bj[1])
+            xf = min(bi[2], bj[2])
+            yf = min(bi[3], bj[3])
+            if xi >= xf or yi >= yf:
+                continue
+            inter = (xf - xi) * (yf - yi)
+            area_bj = max(1, (bj[2] - bj[0]) * (bj[3] - bj[1]))
+            if inter / area_bj >= contain_ratio:
+                drop.add(i)
+                break
+
+    return [r for k, r in enumerate(rooms) if k not in drop]
 
 
 def _polygon_area(polygon):

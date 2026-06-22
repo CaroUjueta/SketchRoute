@@ -30,15 +30,15 @@ class ProcessingPipeline:
         self.config = {
             'target_w': 1320,
             'target_h': 864,
-            'hough_min_length': 30,
-            'hough_max_gap': 15,
-            'merge_angle_tol': 3,
-            'merge_dist_tol': 20,
-            'merge_gap_tol': 40,
+            'hough_min_length': 20,
+            'hough_max_gap': 20,
+            'merge_angle_tol': 6,
+            'merge_dist_tol': 30,
+            'merge_gap_tol': 70,
             'extend_max': 400,
-            'close_gap_tol': 20,
-            'snap_grid': 10,
-            'min_segment_length': 25,
+            'close_gap_tol': 55,
+            'snap_grid': 12,
+            'min_segment_length': 20,
             'room_min_area': 5000,
             'room_max_area': 500000,
         }
@@ -59,6 +59,12 @@ class ProcessingPipeline:
             # ── Etapa 1: Corrección de perspectiva ────────────
             image = preprocessing.correct_perspective(image)
 
+            # ── Etapa 1b: Orientar el plano para que la salida principal
+            # (la puerta más ancha y más exterior — la única forma de salir)
+            # quede a la derecha. ──
+            image, rot = self._orient_exit_right(image)
+            debug['rotation'] = rot
+
             # ── Etapa 2: Segmentación por color ───────────────
             logger.info('Segmentando por color...')
             masks = preprocessing.segment_by_color(image)
@@ -73,6 +79,8 @@ class ProcessingPipeline:
             all_segments = {}
             wall_segments_h = []
             wall_segments_v = []
+            wall_style = {'stroke': '#777777', 'stroke_width': 8}
+            elem_styles = {}  # estilo por tipo (para generar objetos tras el bucle)
             door_segments_h = []
             door_segments_v = []
             vano_segments_h = []
@@ -80,7 +88,7 @@ class ProcessingPipeline:
 
             for elem_type, mask_data in masks.items():
                 binary = mask_data['binary']
-                if cv2.countNonZero(binary) < 100:
+                if cv2.countNonZero(binary) < 30:
                     logger.debug('Tipo %s: muy pocos píxeles, saltando', elem_type)
                     continue
 
@@ -93,6 +101,17 @@ class ProcessingPipeline:
                 elem_rects = []
                 if elem_type == 'mueble':
                     elem_circles, elem_rects = lines.detect_shapes(binary)
+                    # descartar formas fuera del área de paredes (ruido/borde)
+                    if wall_segments_h or wall_segments_v:
+                        wpts = wall_segments_h + wall_segments_v
+                        wxs = [c for s in wpts for c in (s[0], s[2])]
+                        wys = [c for s in wpts for c in (s[1], s[3])]
+                        wb = (min(wxs) - 30, min(wys) - 30, max(wxs) + 30, max(wys) + 30)
+                        elem_circles = [c for c in elem_circles
+                                        if wb[0] <= c[0] <= wb[2] and wb[1] <= c[1] <= wb[3]]
+                        elem_rects = [r for r in elem_rects
+                                      if wb[0] <= r[0] + r[2] / 2 <= wb[2]
+                                      and wb[1] <= r[1] + r[3] / 2 <= wb[3]]
                     if elem_circles or elem_rects:
                         binary = lines.mask_out_shapes(binary, elem_circles, elem_rects)
                         for c in elem_circles:
@@ -165,8 +184,35 @@ class ProcessingPipeline:
                         gap_tol=self.config['merge_gap_tol'],
                         min_len=self.config['min_segment_length'],
                     )
+                    # recortar colgajos que se pasan de las esquinas
+                    h, v = lines.trim_overshoots(h, v, margin=30)
+                    # descartar muros flotantes (sombra del borde de la hoja,
+                    # margen impreso) que no conectan con la estructura — ANTES
+                    # de cerrar el contorno, para que no inflen el bounding box
+                    kept = lines.drop_isolated_segments(h + v, tol=25)
+                    h = [s for s in h if list(s) in [list(k) for k in kept]]
+                    v = [s for s in v if list(s) in [list(k) for k in kept]]
+                    # cerrar el contorno exterior como rectángulo (completa
+                    # paredes exteriores demasiado tenues para detectarse)
+                    h, v = lines.close_exterior(h, v)
+                    h = lines.merge_colinear(
+                        h, angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                        min_len=self.config['min_segment_length'],
+                    )
+                    v = lines.merge_colinear(
+                        v, angle_tol=self.config['merge_angle_tol'],
+                        dist_tol=self.config['merge_dist_tol'],
+                        gap_tol=self.config['merge_gap_tol'],
+                        min_len=self.config['min_segment_length'],
+                    )
                     wall_segments_h = h
                     wall_segments_v = v
+                    wall_style = {
+                        'stroke': mask_data['stroke'],
+                        'stroke_width': mask_data['stroke_width'],
+                    }
                     segs = h + v
                 else:
                     # puertas/vanos/muebles: clasificar con tolerancia amplia
@@ -193,6 +239,45 @@ class ProcessingPipeline:
                         else:
                             vano_segments_h = h
                             vano_segments_v = v
+                    # muebles: conectar como las paredes (las divisiones rojas
+                    # del croquis deben quedar como figuras limpias, no trazos
+                    # sueltos colgando)
+                    if elem_type == 'mueble':
+                        h, v = lines.extend_to_intersections(
+                            h, v, max_extend=200,
+                        )
+                        # margen amplio: recorta las colitas que sobresalen de
+                        # las uniones en T (p.ej. el palo vertical que se pasa
+                        # por encima del mostrador) para dejar figuras limpias
+                        h, v = lines.trim_overshoots(h, v, margin=70)
+                        # re-fusionar para colapsar bordes dobles tras extender
+                        h = lines.merge_colinear(
+                            h, angle_tol=self.config['merge_angle_tol'],
+                            dist_tol=self.config['merge_dist_tol'],
+                            gap_tol=self.config['merge_gap_tol'], min_len=seg_min_len,
+                        )
+                        v = lines.merge_colinear(
+                            v, angle_tol=self.config['merge_angle_tol'],
+                            dist_tol=self.config['merge_dist_tol'],
+                            gap_tol=self.config['merge_gap_tol'], min_len=seg_min_len,
+                        )
+                        kept = lines.drop_isolated_segments(h + v, tol=25)
+                        h = [s for s in h if list(s) in [list(k) for k in kept]]
+                        v = [s for s in v if list(s) in [list(k) for k in kept]]
+                        # quitar trazos que cuelgan → muebles como figuras limpias
+                        pruned = lines.prune_dangling(h + v, tol=22)
+                        pk = [list(k) for k in pruned]
+                        h = [s for s in h if list(s) in pk]
+                        v = [s for s in v if list(s) in pk]
+                        # estirar extremos libres hasta la pared colineal cercana
+                        # para que el mueble no quede "volando"
+                        if wall_segments_h or wall_segments_v:
+                            ext = lines.extend_free_ends_to_walls(
+                                h + v, wall_segments_h, wall_segments_v,
+                                max_reach=80,
+                            )
+                            h = [s for s in ext if lines._is_horizontal(np.array(s))]
+                            v = [s for s in ext if not lines._is_horizontal(np.array(s))]
                     segs = h + v
                 segs = lines.close_gaps(segs, gap_tol=self.config['close_gap_tol'])
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
@@ -201,7 +286,36 @@ class ProcessingPipeline:
                     clean_min = max(10, clean_min - 10)
                 segs = lines._clean_short_segments(segs, min_len=clean_min)
 
+                # descartar color fuera del área de paredes (logo del cuaderno,
+                # margen impreso): solo nos interesa lo que está dentro del edificio
+                if elem_type != 'pared' and (wall_segments_h or wall_segments_v):
+                    wpts = wall_segments_h + wall_segments_v
+                    xs = [c for s in wpts for c in (s[0], s[2])]
+                    ys = [c for s in wpts for c in (s[1], s[3])]
+                    wbb = (min(xs), min(ys), max(xs), max(ys))
+                    segs = lines.filter_within_bbox(segs, wbb, margin=30)
+                    # pegar puertas/vanos a la pared cercana para que la corten
+                    # (sin esto, al cerrar el contorno la puerta de salida queda
+                    # flotando justo afuera de la pared)
+                    if elem_type in ('puerta', 'vano'):
+                        segs = lines.snap_segments_to_walls(
+                            segs, wall_segments_h, wall_segments_v, tol=35,
+                        )
+
                 all_segments[elem_type] = segs
+                elem_styles[elem_type] = {
+                    'stroke': mask_data['stroke'],
+                    'stroke_width': mask_data['stroke_width'],
+                    'sr_type': mask_data['sr_type'],
+                }
+
+                # Paredes, puertas y vanos se generan DESPUÉS del bucle: las
+                # puertas se filtran (solo las que están sobre un muro) y las
+                # paredes se cortan donde caen las puertas (hueco real). Para
+                # eso necesitamos todos los segmentos estructurales primero.
+                if elem_type in ('pared', 'puerta', 'vano'):
+                    debug[f'{elem_type}_segments'] = len(segs)
+                    continue
 
                 # convertir a objetos Fabric.js
                 objs = fabric.segments_to_fabric_lines(
@@ -247,6 +361,42 @@ class ProcessingPipeline:
                 zone_objs = fabric.rooms_to_fabric_zones(room_list)
                 all_objects[:0] = zone_objs  # zonas al fondo
 
+            # ── Etapa 4b: Filtrar puertas y cortar paredes ──────
+            # 1) descartar puertas que no están sobre un muro (flotando dentro
+            #    de un recinto) o que son fragmentos diminutos.
+            # 2) cortar las paredes donde caen las puertas para dejar un HUECO
+            #    real (no la puerta encima de una pared continua) y que las
+            #    rutas de evacuación crucen por la abertura.
+            # Se hace tras detectar recintos (que necesitan los muros completos).
+            for dtype in ('puerta', 'vano'):
+                if dtype not in all_segments:
+                    continue
+                kept = lines.keep_doors_on_walls(
+                    all_segments[dtype], wall_segments_h, wall_segments_v,
+                )
+                all_segments[dtype] = kept
+                st = elem_styles.get(dtype, {})
+                door_objs = fabric.segments_to_fabric_lines(
+                    kept,
+                    sr_type=st.get('sr_type', dtype),
+                    color=st.get('stroke', '#000000'),
+                    stroke_width=st.get('stroke_width', 3),
+                )
+                all_objects.extend(door_objs)
+
+            door_segs = (all_segments.get('puerta', [])
+                         + all_segments.get('vano', []))
+            wh, wv = wall_segments_h, wall_segments_v
+            if door_segs:
+                wh, wv = lines.cut_walls_at_doors(wh, wv, door_segs)
+            wall_objs = fabric.segments_to_fabric_lines(
+                wh + wv,
+                sr_type='pared',
+                color=wall_style['stroke'],
+                stroke_width=wall_style['stroke_width'],
+            )
+            all_objects.extend(wall_objs)
+
             # ── Etapa 5: JSON Fabric.js ────────────────────────
             logger.info('Generando JSON Fabric.js...')
             canvas_data = fabric.build_canvas_json(
@@ -276,6 +426,73 @@ class ProcessingPipeline:
         except Exception as e:
             logger.exception('Error en pipeline de procesamiento')
             return self._error(str(e))
+
+    def _orient_exit_right(self, image):
+        """Rota el plano para que la salida principal quede a la derecha.
+
+        La salida principal = la puerta (azul) más grande, que es la que da a
+        la calle. Se detecta en qué lado del edificio está y se rota la imagen
+        en múltiplos de 90° para llevar ese lado a la derecha. Como efecto
+        secundario, un plano vertical suele quedar horizontal y llenar mejor
+        la página. Devuelve (imagen_rotada, grados_rotados)."""
+        try:
+            masks = preprocessing.segment_by_color(image)
+        except Exception:
+            return image, 0
+
+        door = masks.get('puerta', {}).get('binary')
+        wall = masks.get('pared', {}).get('binary')
+        if door is None or cv2.countNonZero(door) < 50:
+            return image, 0
+
+        # centro de referencia: bbox de las paredes (o de la imagen)
+        if wall is not None and cv2.countNonZero(wall) > 0:
+            ys, xs = np.where(wall > 0)
+            wx1, wy1, wx2, wy2 = xs.min(), ys.min(), xs.max(), ys.max()
+        else:
+            wy1, wx1 = 0, 0
+            wy2, wx2 = image.shape[0], image.shape[1]
+        bx, by = (wx1 + wx2) / 2, (wy1 + wy2) / 2
+        half_w = max((wx2 - wx1) / 2, 1)
+        half_h = max((wy2 - wy1) / 2, 1)
+
+        # La salida principal = puerta grande Y exterior (la única forma de
+        # salir). Puntúa cada puerta por área × (1 + qué tan cerca está del
+        # perímetro del edificio), para no elegir una puerta interior aunque
+        # sea ancha.
+        n, labels, stats, cents = cv2.connectedComponentsWithStats(door, 8)
+        if n <= 1:
+            return image, 0
+        best_idx, best_score = -1, -1.0
+        for i in range(1, n):
+            area = stats[i, cv2.CC_STAT_AREA]
+            if area < 30:
+                continue
+            dcx, dcy = cents[i]
+            outward = max(abs(dcx - bx) / half_w, abs(dcy - by) / half_h)  # 0=centro 1=borde
+            score = area * (1.0 + 1.5 * outward)
+            if score > best_score:
+                best_score, best_idx = score, i
+        if best_idx < 0:
+            return image, 0
+        cx, cy = cents[best_idx]
+
+        dx, dy = cx - bx, cy - by
+        # lado donde está la salida
+        if abs(dx) >= abs(dy):
+            side = 'right' if dx > 0 else 'left'
+        else:
+            side = 'bottom' if dy > 0 else 'top'
+
+        # rotación para llevar ese lado a la derecha
+        if side == 'right':
+            return image, 0
+        if side == 'left':
+            return cv2.rotate(image, cv2.ROTATE_180), 180
+        if side == 'bottom':
+            return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE), 90
+        # top
+        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE), 270
 
     def _error(self, msg):
         return {

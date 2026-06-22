@@ -496,14 +496,18 @@ Ver el archivo `RoadMap_Editor_Evacuacion.xlsx` para el detalle completo de las 
 
 Para obtener los mejores resultados con el procesamiento de imagen:
 
-| Elemento | Color recomendado | Notas |
-|---|---|---|
-| Paredes | **Negro** o **Azul oscuro** | Trazo continuo, líneas rectas |
-| Puertas | **Rojo** | Arco de apertura + línea de la puerta |
-| Ventanas | **Azul claro** | Rectángulo con línea central |
-| Muebles | **Verde** | Contorno del mueble |
-| Escaleras | **Naranja** | Rectángulo con líneas de escalones |
-| Textos | **Negro** | Letra clara, sin adornos |
+> **Fuente de verdad:** estos colores son los que detecta el pipeline y están
+> definidos en `apps/processing/services/preprocessing.py::COLOR_MAP`. La misma
+> leyenda se muestra en la web (pantalla de subida y editor) generada desde ahí
+> con `drawing_legend()`, así que esta tabla y la interfaz nunca se desfasan.
+
+| Elemento | Color a dibujar | Efecto en la ruta | Notas |
+|---|---|---|---|
+| Paredes | **Negro** (o gris oscuro) | Bloquea | Trazo continuo, líneas rectas |
+| Puertas | **Azul** | Abre el paso | Arco de apertura + línea de la puerta |
+| Vanos / aberturas | **Verde** | Abre el paso | Abertura básica sin arco |
+| Muebles / obstáculos | **Rojo** | Bloquea | Contorno del mueble |
+| Textos | **Negro** | — | Letra clara, sin adornos |
 
 **Recomendaciones:**
 - Usar papel blanco tamaño carta (horizontal)

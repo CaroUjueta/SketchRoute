@@ -12,6 +12,7 @@ from django.conf import settings
 from apps.plans.models import Plan
 from .models import ProcessingJob
 from .services.pipeline import ProcessingPipeline
+from .services.preprocessing import drawing_legend
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,10 @@ def upload_image(request, plan_pk):
 
         return redirect('plan_editor', pk=plan.pk)
 
-    return render(request, 'processing/upload.html', {'plan': plan})
+    return render(request, 'processing/upload.html', {
+        'plan': plan,
+        'legend': drawing_legend(),
+    })
 
 
 @login_required

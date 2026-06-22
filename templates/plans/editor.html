@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load l10n %}
 {% block title %}{{ plan.name }} — Editor — SketchRoute{% endblock %}
 
 {% block extra_head %}
@@ -33,11 +34,6 @@
       <span id="ed-status" class="ed-status">Listo</span>
     </div>
     <div class="ed-topbar-right">
-      <label class="ed-tb-btn" title="Subir croquis de fondo">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
-        Subir croquis
-        <input type="file" id="bg-upload" accept="image/*" hidden>
-      </label>
       <button class="ed-tb-btn ed-tb-btn--save" onclick="SR.save()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         Guardar
@@ -146,6 +142,19 @@
           </button>
           <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearAll()">
             Limpiar rutas
+          </button>
+        </div>
+      </div>
+
+      <!-- Señalización automática (NTC) -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--green"></i>Señalización NTC</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Coloca extintores por cobertura (NTC 2885) y señales de evacuación en los giros de la ruta. Vuelve a pulsar para rehacerla.</p>
+          <button class="ed-route-btn ed-route-btn--evac" onclick="SR.autoSignal()">
+            Señalizar automáticamente
           </button>
         </div>
       </div>
@@ -278,11 +287,13 @@
 
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
-<script src="{% static 'js/icons.js' %}?v=3"></script>
-<script src="{% static 'js/canvas.js' %}?v=3"></script>
+<script src="{% static 'js/icons.js' %}?v=8"></script>
+<script src="{% static 'js/canvas.js' %}?v=8"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
+  const PLAN_IMAGE   = "{% if plan.original_image %}{{ plan.original_image.url|escapejs }}{% endif %}";
+  const PLAN_SCALE   = {{ plan.scale|default:1|unlocalize }};
   const PROJECT_NAME = "{{ plan.project.name|escapejs }}";
   const SAVE_URL  = "{% url 'plan_save' pk=plan.id %}";
   const CSRF      = "{{ csrf_token }}";

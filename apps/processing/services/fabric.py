@@ -307,8 +307,8 @@ def rect_to_fabric(x, y, w, h, sr_type='mueble', color='#000000', stroke_width=2
     }
 
 
-def rooms_to_fabric_zones(rooms, fill='rgba(0,0,0,0.04)',
-                           stroke='#777777', stroke_width=1):
+def rooms_to_fabric_zones(rooms, fill='transparent',
+                           stroke='transparent', stroke_width=0):
     objects = []
     for room in rooms:
         polygon = room['polygon']
@@ -334,38 +334,101 @@ def rooms_to_fabric_zones(rooms, fill='rgba(0,0,0,0.04)',
             'fill': fill,
             'stroke': stroke,
             'strokeWidth': stroke_width,
-            'srType': 'zona',
+            # 'recinto' = fondo decorativo de una habitación detectada: es
+            # TRANSITABLE (a diferencia de 'zona', que el editor trata como
+            # obstáculo). No es interactivo para no estorbar al corregir
+            # paredes/puertas encima.
+            'srType': 'recinto',
             'srCat': 'shape',
-            'selectable': True,
-            'evented': True,
-            'hasControls': True,
-            'hasBorders': True,
+            'selectable': False,
+            'evented': False,
+            'hasControls': False,
+            'hasBorders': False,
         }
         objects.append(obj)
 
     return objects
 
 
-def build_canvas_json(objects, extra_objects=None, doc_w=1320, doc_h=864):
-    title_obj = {
-        'type': 'i-text',
-        'version': '5.3.1',
-        'left': doc_w / 2,
-        'top': 22,
-        'fontFamily': 'Syne',
-        'fontSize': 38,
-        'fontWeight': 'bold',
-        'fill': '#000000',
-        'textAlign': 'center',
-        'originX': 'center',
-        'originY': 'top',
-        'text': 'PLANO VECTORIZADO',
-        'srType': 'titulo',
-        'srCat': 'title',
-    }
+def _obj_bounds(o):
+    """(x1,y1,x2,y2) del objeto en coordenadas de canvas."""
+    t = o['type']
+    l = o.get('left', 0.0)
+    tp = o.get('top', 0.0)
+    if t == 'ellipse':  # originX/originY = center
+        rx, ry = o.get('rx', 0), o.get('ry', 0)
+        return (l - rx, tp - ry, l + rx, tp + ry)
+    w = o.get('width', 0)
+    h = o.get('height', 0)
+    return (l, tp, l + w, tp + h)
 
+
+def _scale_obj(o, s):
+    """Escala la geometría interna de un objeto por el factor s (la posición
+    left/top la ajusta el llamador). No toca strokeWidth (grosor constante)."""
+    t = o['type']
+    for k in ('width', 'height', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2'):
+        if k in o and isinstance(o[k], (int, float)):
+            o[k] *= s
+    if t == 'path' and isinstance(o.get('path'), list):
+        for cmd in o['path']:
+            for i in range(1, len(cmd)):
+                if isinstance(cmd[i], (int, float)):
+                    cmd[i] *= s
+    if t == 'group' and isinstance(o.get('objects'), list):
+        for ch in o['objects']:
+            # los hijos tienen coords relativas al centro del grupo
+            for k in ('left', 'top'):
+                if isinstance(ch.get(k), (int, float)):
+                    ch[k] *= s
+            _scale_obj(ch, s)
+
+
+def refit_objects(objects, doc_w, doc_h, top_band=78, margin=26):
+    """Re-encuadra todos los objetos para que el plano LLENE el lienzo
+    (dejando una banda arriba para el título y un margen). Opera sobre los
+    objetos finales y limpios, así que es inmune al ruido de las máscaras.
+    Escala uniforme (sin deformar) y centra en el área disponible."""
+    if not objects:
+        return objects
+    bxs = [_obj_bounds(o) for o in objects]
+    ox1 = min(b[0] for b in bxs)
+    oy1 = min(b[1] for b in bxs)
+    ox2 = max(b[2] for b in bxs)
+    oy2 = max(b[3] for b in bxs)
+    bw, bh = ox2 - ox1, oy2 - oy1
+    if bw < 1 or bh < 1:
+        return objects
+
+    avail_w = doc_w - 2 * margin
+    avail_h = doc_h - top_band - margin
+    s = min(avail_w / bw, avail_h / bh)
+    # centrar el contenido escalado en el área disponible
+    nx1 = margin + (avail_w - bw * s) / 2
+    ny1 = top_band + (avail_h - bh * s) / 2
+
+    for o in objects:
+        o['left'] = (o.get('left', 0.0) - ox1) * s + nx1
+        o['top'] = (o.get('top', 0.0) - oy1) * s + ny1
+        # srGapX/srGapY (centro del hueco de la puerta) es el DESTINO de las
+        # rutas de evacuación. Está en coordenadas pre-reencuadre, así que hay
+        # que mapearlo con la misma transformación o las flechas apuntarían a
+        # un punto desplazado y no llegarían a la salida.
+        if isinstance(o.get('srGapX'), (int, float)):
+            o['srGapX'] = (o['srGapX'] - ox1) * s + nx1
+        if isinstance(o.get('srGapY'), (int, float)):
+            o['srGapY'] = (o['srGapY'] - oy1) * s + ny1
+        _scale_obj(o, s)
+    return objects
+
+
+def build_canvas_json(objects, extra_objects=None, doc_w=1320, doc_h=864):
+    # NO se agrega título aquí: el editor (ensureHeader/titleFor) coloca el
+    # título correcto con el nombre de la droguería + la ruta. Si lo pusiéramos
+    # acá, el editor no lo reemplazaría y quedaría "PLANO VECTORIZADO".
     all_objects = list(objects)
-    all_objects.append(title_obj)
+    # re-encuadrar para que el plano llene el lienzo (deja banda para el título)
+    refit_objects(all_objects, doc_w, doc_h)
 
     return {
         'version': '5.3.1',
