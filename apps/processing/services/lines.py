@@ -1,8 +1,9 @@
 """Detección y procesamiento de líneas para planos arquitectónicos.
 
 Pipeline:
-1. Skeletonización (adelgazar trazos a 1px)
-2. Hough probabilístico (detectar segmentos)
+1. LSD (Line Segment Detector) como método principal — funciona mejor
+   para trazos hechos a mano que Hough probabilístico
+2. Si LSD no da suficientes segmentos, fallback a skeletonize + Hough
 3. Clasificar en H/V
 4. Fusionar colineales (agrupar por y/x, extender)
 5. Extender hasta intersecciones (cerrar esquinas)
@@ -14,6 +15,8 @@ Todo asume coordenadas absolutas (no relativas al canvas)."""
 import numpy as np
 import cv2
 
+
+# ── Skeletonize (solo para fallback Hough) ────────────────────
 
 def skeletonize(binary):
     skel = np.zeros(binary.shape, dtype=np.uint8)
@@ -28,6 +31,24 @@ def skeletonize(binary):
     return skel
 
 
+# ── LSD: Line Segment Detector ────────────────────────────────
+
+def detect_lines_lsd(gray, min_length=20):
+    lsd = cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
+    lines, _, _, _ = lsd.detect(gray)
+    if lines is None:
+        return []
+    segs = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        length = np.hypot(x2 - x1, y2 - y1)
+        if length >= min_length:
+            segs.append([float(x1), float(y1), float(x2), float(y2)])
+    return segs
+
+
+# ── Hough (fallback) ──────────────────────────────────────────
+
 def detect_lines_hough(binary, min_length=30, max_gap=15):
     lines = cv2.HoughLinesP(
         binary,
@@ -40,6 +61,43 @@ def detect_lines_hough(binary, min_length=30, max_gap=15):
     if lines is None:
         return []
     return lines[:, 0, :].tolist()
+
+
+# ── Detector unificado ────────────────────────────────────────
+
+def detect_segments(gray, binary, config=None):
+    """Detecta segmentos de línea usando LSD (preferido) o Hough (fallback).
+
+    Args:
+        gray: imagen en escala de grises (para LSD)
+        binary: imagen binaria (para Hough)
+        config: dict con claves opcionales:
+            - method: 'lsd', 'hough' o 'auto' (default: 'auto')
+            - min_length: longitud mínima del segmento
+            - max_gap: gap máximo para Hough
+
+    Returns:
+        list de segmentos [x1, y1, x2, y2]
+    """
+    cfg = config or {}
+    method = cfg.get('method', 'auto')
+    min_length = cfg.get('min_length', 20)
+    max_gap = cfg.get('max_gap', 15)
+
+    if method == 'lsd':
+        return detect_lines_lsd(gray, min_length)
+
+    if method == 'hough':
+        return detect_lines_hough(binary, min_length, max_gap)
+
+    # auto: probar LSD, si da pocos o ningún segmento → Hough
+    segs = detect_lines_lsd(gray, min_length)
+    if len(segs) >= 5:
+        return segs
+    segs_h = detect_lines_hough(binary, min_length, max_gap)
+    if len(segs_h) > len(segs):
+        return segs_h
+    return segs
 
 
 def classify_lines(segments, angle_tolerance=5):
@@ -479,7 +537,7 @@ def find_wall_gaps(h_segments, v_segments, door_mask=None, min_gap=15, max_gap=1
                         gaps.append({'x': x, 'y': (last[1] + y1) / 2, 'width': 8, 'height': gap})
                     merged.append([y1, y2])
 
-    if door_mask is not None and gaps:
+    if door_mask is not None and np.any(door_mask > 0) and gaps:
         validated = []
         for g in gaps:
             x, y, w, h = int(g['x']), int(g['y']), int(g['width']), int(g['height'])

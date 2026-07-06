@@ -185,6 +185,58 @@ def _make_door(x1, y1, x2, y2, color='#000000', stroke_width=3):
     }
 
 
+def _make_door_from_gap(gap):
+    """Convierte un gap detectado en un objeto puerta Fabric.js.
+
+    Args:
+        gap: dict con 'x', 'y', 'width', 'height' (de find_wall_gaps)
+
+    Returns:
+        dict Fabric.js path (rectángulo blanco con borde negro)
+    """
+    cx, cy = gap['x'], gap['y']
+    w, h = gap['width'], gap['height']
+
+    if w < 10 and h < 10:
+        return None
+
+    left = cx - w / 2
+    top = cy - h / 2
+    sr_dir = 'h' if w >= h else 'v'
+
+    return {
+        'type': 'path',
+        'version': '5.3.1',
+        'originX': 'left',
+        'originY': 'top',
+        'left': float(left),
+        'top': float(top),
+        'width': float(w),
+        'height': float(h),
+        'fill': '#ffffff',
+        'stroke': '#000000',
+        'strokeWidth': 3,
+        'strokeLineCap': 'round',
+        'strokeUniform': True,
+        'path': [
+            ['M', 0, 0],
+            ['L', w, 0],
+            ['L', w, h],
+            ['L', 0, h],
+            ['Z'],
+        ],
+        'srType': 'puerta',
+        'srCat': 'shape',
+        'srGapX': float(cx),
+        'srGapY': float(cy),
+        'srDir': sr_dir,
+        'selectable': True,
+        'evented': True,
+        'hasControls': True,
+        'hasBorders': True,
+    }
+
+
 def _make_vano(x1, y1, x2, y2):
     """Genera un Group con dos jambas y línea punteada (vano).
 
@@ -344,6 +396,55 @@ def rooms_to_fabric_zones(rooms, fill='rgba(0,0,0,0.04)',
         objects.append(obj)
 
     return objects
+
+
+def symbol_to_fabric(symbol, default_size=40):
+    """Convierte un símbolo detectado por YOLO en objeto Fabric.js.
+
+    Args:
+        symbol: dict con 'class', 'bbox', 'confidence', 'center'
+        default_size: tamaño por defecto del icono en px
+
+    Returns:
+        dict Fabric.js (Rect con etiqueta) o None si clase no soportada
+    """
+    x1, y1, x2, y2 = symbol['bbox']
+    cx, cy = symbol['center']
+    w = max(x2 - x1, default_size)
+    h = max(y2 - y1, default_size)
+
+    color_map = {
+        'salida_emergencia': '#16a34a',
+        'extintor': '#dc2626',
+        'botiquin': '#2563eb',
+        'punto_reunion': '#f59e0b',
+        'escalera': '#6b7280',
+    }
+
+    fill = color_map.get(symbol['class'], '#6b7280')
+
+    return {
+        'type': 'rect',
+        'version': '5.3.1',
+        'originX': 'center',
+        'originY': 'center',
+        'left': float(cx),
+        'top': float(cy),
+        'width': float(w),
+        'height': float(h),
+        'fill': fill,
+        'stroke': fill,
+        'strokeWidth': 2,
+        'rx': 4,
+        'ry': 4,
+        'opacity': 0.85,
+        'srType': symbol['class'],
+        'srCat': 'icon',
+        'selectable': True,
+        'evented': True,
+        'hasControls': True,
+        'hasBorders': True,
+    }
 
 
 def build_canvas_json(objects, extra_objects=None, doc_w=1320, doc_h=864):

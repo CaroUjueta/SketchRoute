@@ -1,15 +1,18 @@
-"""Pipeline principal de procesamiento de imágenes.
+"""Pipeline principal de procesamiento de imágenes — Híbrido OpenCV + ML.
 
 Orquesta las etapas de:
-1. Preprocesamiento (perspectiva, segmentación por color)
-2. Detección de líneas por máscara de color (paredes, puertas, muebles)
-3. Fusión de segmentos
-4. Detección de recintos (grafo planar, ciclos) — solo paredes
-5. Generación de JSON Fabric.js con objetos tipados por color
+1. Preprocesamiento (perspectiva, CLAHE, binarización)
+2. Segmentación: ML (U-Net) si hay modelo, si no clustering adaptativo
+3. Detección de líneas: LSD (preferido) o skeletonize + Hough
+4. Fusión de segmentos (merge colineal, extender, cerrar gaps, snap)
+5. Detección de recintos (grafo planar, ciclos)
+6. Detección de símbolos (YOLO, si está disponible)
+7. Generación de JSON Fabric.js
 
 Cada tipo de elemento se procesa por separado usando su máscara
-de color, lo que permite diferenciar paredes (negro), puertas
-(azul) y muebles (rojo) sin necesidad de clasificación ML."""
+de segmentación, lo que permite diferenciar paredes, puertas,
+muebles y vanos.
+"""
 
 import cv2
 import numpy as np
@@ -22,6 +25,21 @@ from . import rooms
 from . import fabric
 
 logger = logging.getLogger(__name__)
+
+# Intentar importar ML, pero no fallar si no está
+try:
+    from .ml.predict import segment_image, masks_to_elements
+    HAS_ML = True
+except ImportError:
+    HAS_ML = False
+    logger.info('Módulo ML no disponible, usando solo OpenCV')
+
+try:
+    from .ml.detector import get_detector
+    HAS_YOLO = True
+except ImportError:
+    HAS_YOLO = False
+    logger.info('YOLO no disponible, omitiendo detección de símbolos')
 
 
 class ProcessingPipeline:
@@ -41,6 +59,19 @@ class ProcessingPipeline:
             'min_segment_length': 25,
             'room_min_area': 5000,
             'room_max_area': 500000,
+            # híbrido
+            'use_lsd': True,             # LSD en vez de Hough cuando sea posible
+            'use_clustering': True,      # k-means adaptativo vs HSV fijo
+            'use_ml_segmentation': True, # U-Net si el modelo está disponible
+            'use_yolo': True,            # YOLO para símbolos
+            'n_clusters': 5,             # clusters para k-means
+            # foto preprocessing
+            'binarize_method': 'sauvola', # sauvola | adaptive | otsu | dog
+            'use_bilateral': True,       # filtro bilateral pre-binarización
+            'use_stroke_filter': True,   # filtrar por ancho de trazo
+            'bilateral_d': 7,
+            'bilateral_sigma_color': 50,
+            'bilateral_sigma_space': 50,
         }
         if config:
             self.config.update(config)
@@ -56,27 +87,96 @@ class ProcessingPipeline:
 
             debug['input_shape'] = image.shape
 
-            # ── Etapa 1: Corrección de perspectiva ────────────
+            # ── Etapa 1: Preprocesamiento para fotos ────────────
             image = preprocessing.correct_perspective(image)
+            gray = preprocessing.grayscale(image)
+            gray = preprocessing.enhance_contrast(gray)
 
-            # ── Etapa 2: Segmentación por color ───────────────
-            logger.info('Segmentando por color...')
-            masks = preprocessing.segment_by_color(image)
+            # filtro bilateral para reducir textura del papel
+            if self.config['use_bilateral']:
+                gray = preprocessing.bilateral_filter(
+                    gray,
+                    d=self.config['bilateral_d'],
+                    sigma_color=self.config['bilateral_sigma_color'],
+                    sigma_space=self.config['bilateral_sigma_space'],
+                )
+
+            # binarización adaptativa (Sauvola para fotos)
+            binary = preprocessing.binarize(gray, method=self.config['binarize_method'])
+
+            # filtrar por forma de trazo (elimina sombras/manchas)
+            if self.config['use_stroke_filter']:
+                binary = preprocessing.stroke_confidence_filter(binary)
+
+            binary = preprocessing.denoise(binary)
+
+            # ── Etapa 2: Segmentación ───────────────────────────
+            masks = None
+
+            # 2a: intentar ML (U-Net) si está disponible y habilitado
+            if self.config['use_ml_segmentation'] and HAS_ML:
+                logger.info('Intentando segmentación con ML...')
+                ml_masks = segment_image(image)
+                if ml_masks is not None:
+                    masks = {}
+                    for name, mask in ml_masks.items():
+                        cfg = preprocessing.COLOR_MAP.get(name, {})
+                        masks[name] = {
+                            'binary': mask,
+                            'stroke': cfg.get('stroke', '#000000'),
+                            'stroke_width': cfg.get('stroke_width', 3),
+                            'sr_type': name,
+                        }
+                    debug['segmentation_method'] = 'ml'
+
+            # 2b: detectar si la imagen es a color o monocroma
+            if masks is None:
+                is_color = _has_color_info(image)
+                debug['has_color'] = is_color
+
+                if is_color:
+                    logger.info('Imagen a color, usando clustering/color')
+                    masks = preprocessing.segment_by_color_or_clustering(
+                        image,
+                        use_clustering=self.config['use_clustering'],
+                        n_clusters=self.config['n_clusters'],
+                    )
+                    debug['segmentation_method'] = 'clustering' if self.config['use_clustering'] else 'color_hsv'
+                else:
+                    logger.info('Imagen monocroma, separando por ancho de trazo')
+                    masks = preprocessing.build_masks_from_strokes(
+                        binary,
+                        stroke_config={'thick_threshold': 4},
+                    )
+                    debug['segmentation_method'] = 'stroke_width'
+
+            # redimensionar máscaras al canvas
             masks = preprocessing.resize_mask_to_canvas(
                 masks, self.config['target_w'], self.config['target_h'],
             )
-
-            debug['segments'] = {k: cv2.countNonZero(v['binary']) for k, v in masks.items()}
+            debug['segments_px'] = {
+                k: int(cv2.countNonZero(v['binary']))
+                for k, v in masks.items()
+            }
+            wall_binary = masks.get('pared', {}).get('binary')
 
             # ── Etapa 3: Detección de líneas por tipo ─────────
-            all_objects = []  # objetos Fabric.js de todos los tipos
+            all_objects = []
             all_segments = {}
             wall_segments_h = []
             wall_segments_v = []
+            wall_h_gap_raw = []
+            wall_v_gap_raw = []
             door_segments_h = []
             door_segments_v = []
             vano_segments_h = []
             vano_segments_v = []
+
+            line_config = {
+                'method': 'lsd' if self.config['use_lsd'] else 'auto',
+                'min_length': self.config['hough_min_length'],
+                'max_gap': self.config['hough_max_gap'],
+            }
 
             for elem_type, mask_data in masks.items():
                 binary = mask_data['binary']
@@ -87,8 +187,6 @@ class ProcessingPipeline:
                 logger.info('Procesando %s...', elem_type)
 
                 # ── Detectar formas (círculos y rectángulos) ─────
-                # Para muebles, detectar formas antes de Hough para
-                # evitar que sus bordes generen segmentos espurios
                 elem_circles = []
                 elem_rects = []
                 if elem_type == 'mueble':
@@ -116,23 +214,26 @@ class ProcessingPipeline:
                         debug[f'{elem_type}_circles'] = len(elem_circles)
                         debug[f'{elem_type}_rects'] = len(elem_rects)
 
-                # adelgazar a 1px para que Hough no detecte bordes dobles
-                src = lines.skeletonize(binary)
-                # líneas finas (muebles, puertas) necesitan min_length más bajo
-                hough_min = self.config['hough_min_length']
-                hough_gap = self.config['hough_max_gap']
+                # Detectar segmentos: usar gray original (no binarizada) para LSD
+                # o skeletonize + Hough como fallback
+                cfg = dict(line_config)
                 if elem_type != 'pared':
-                    hough_min = max(15, hough_min - 10)
-                raw = lines.detect_lines_hough(
-                    src,
-                    min_length=hough_min,
-                    max_gap=hough_gap,
+                    cfg['min_length'] = max(15, cfg['min_length'] - 10)
+
+                # Para LSD usamos la imagen gray (necesita grises),
+                # para Hough usamos la binaria skeletonizada
+                gray_resized = cv2.resize(
+                    gray, (self.config['target_w'], self.config['target_h']),
                 )
+                raw = lines.detect_segments(gray_resized, binary, cfg)
 
                 # paredes: usar clasificación H/V estricta para el grafo
-                # puertas/vanos/muebles: usar todos los segmentos (trazos finos y temblorosos)
+                # puertas/vanos/muebles: usar todos los segmentos
                 if elem_type == 'pared':
                     h, v, _ = lines.classify_lines(raw, angle_tolerance=5)
+                    # guardar RAW (sin merge) para detección de vanos
+                    wall_h_gap_raw = list(h)
+                    wall_v_gap_raw = list(v)
                     h = lines.merge_colinear(
                         h,
                         angle_tol=self.config['merge_angle_tol'],
@@ -147,7 +248,6 @@ class ProcessingPipeline:
                         gap_tol=self.config['merge_gap_tol'],
                         min_len=self.config['min_segment_length'],
                     )
-                    # guardar antes de extender para detección de vanos
                     wall_h_pre_extend = list(h)
                     wall_v_pre_extend = list(v)
                     h, v = lines.extend_to_intersections(
@@ -169,19 +269,16 @@ class ProcessingPipeline:
                     wall_segments_v = v
                     segs = h + v
                 else:
-                    # puertas/vanos/muebles: clasificar con tolerancia amplia
                     h, v, o = lines.classify_lines(raw, angle_tolerance=10)
                     seg_min_len = max(10, self.config['min_segment_length'] - 10)
                     h = lines.merge_colinear(
-                        h,
-                        angle_tol=self.config['merge_angle_tol'],
+                        h, angle_tol=self.config['merge_angle_tol'],
                         dist_tol=self.config['merge_dist_tol'],
                         gap_tol=self.config['merge_gap_tol'],
                         min_len=seg_min_len,
                     )
                     v = lines.merge_colinear(
-                        v,
-                        angle_tol=self.config['merge_angle_tol'],
+                        v, angle_tol=self.config['merge_angle_tol'],
                         dist_tol=self.config['merge_dist_tol'],
                         gap_tol=self.config['merge_gap_tol'],
                         min_len=seg_min_len,
@@ -194,6 +291,7 @@ class ProcessingPipeline:
                             vano_segments_h = h
                             vano_segments_v = v
                     segs = h + v
+
                 segs = lines.close_gaps(segs, gap_tol=self.config['close_gap_tol'])
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
                 clean_min = self.config['min_segment_length']
@@ -203,7 +301,6 @@ class ProcessingPipeline:
 
                 all_segments[elem_type] = segs
 
-                # convertir a objetos Fabric.js
                 objs = fabric.segments_to_fabric_lines(
                     segs,
                     sr_type=mask_data['sr_type'],
@@ -220,14 +317,13 @@ class ProcessingPipeline:
 
             room_list = []
             if wall_segments_h or wall_segments_v:
-                # forzar grid y cerrar gaps para que el grafo sea preciso
                 segs = wall_segments_h + wall_segments_v
                 segs = lines.snap_to_grid(segs, grid_size=self.config['snap_grid'])
                 segs = lines.close_gaps(segs, gap_tol=20)
                 segs = lines._clean_short_segments(segs, min_len=self.config['min_segment_length'])
                 sh = [s for s in segs if lines._is_horizontal(s)]
                 sv = [s for s in segs if not lines._is_horizontal(s)]
-                graph = rooms.build_intersection_graph(sh, sv)
+                graph = rooms.build_intersection_graph(sh, sv, wall_binary=wall_binary)
                 room_list = rooms.find_rooms(
                     graph,
                     min_area=self.config['room_min_area'],
@@ -236,18 +332,48 @@ class ProcessingPipeline:
                 debug['graph_nodes'] = len(graph['points'])
                 debug['rooms_found'] = len(room_list)
 
-                # ── Detectar puertas desde gaps en muros ────────────
+                # segmentos pre-merge para detectar gaps (antes de que merge_colinear los cierre)
+                gap_h = wall_h_gap_raw
+                gap_v = wall_v_gap_raw
                 door_binary = masks.get('puerta', {}).get('binary')
                 door_gaps = lines.find_wall_gaps(
-                    wall_h_pre_extend, wall_v_pre_extend,
+                    gap_h, gap_v,
                     door_mask=door_binary,
+                    min_gap=15,
+                    max_gap=200,
                 )
                 debug['door_gaps'] = len(door_gaps)
 
-                zone_objs = fabric.rooms_to_fabric_zones(room_list)
-                all_objects[:0] = zone_objs  # zonas al fondo
+                # convertir gaps detectados en objetos puerta
+                for g in door_gaps:
+                    door_obj = fabric._make_door_from_gap(g)
+                    if door_obj:
+                        all_objects.append(door_obj)
 
-            # ── Etapa 5: JSON Fabric.js ────────────────────────
+                zone_objs = fabric.rooms_to_fabric_zones(room_list)
+                all_objects[:0] = zone_objs
+
+            # ── Etapa 5: Detección de símbolos (YOLO) ──────────
+            if self.config['use_yolo'] and HAS_YOLO:
+                logger.info('Detectando símbolos con YOLO...')
+                try:
+                    detector = get_detector()
+                    if detector.is_loaded():
+                        symbols = detector.detect(image)
+                        debug['symbols_found'] = len(symbols)
+                        for sym in symbols:
+                            obj = fabric.symbol_to_fabric(sym)
+                            if obj:
+                                all_objects.append(obj)
+                    else:
+                        debug['symbols_found'] = 0
+                        debug['yolo_error'] = 'modelo no cargado'
+                except Exception as e:
+                    logger.warning('Error en detección YOLO: %s', e)
+                    debug['symbols_found'] = 0
+                    debug['yolo_error'] = str(e)
+
+            # ── Etapa 6: JSON Fabric.js ────────────────────────
             logger.info('Generando JSON Fabric.js...')
             canvas_data = fabric.build_canvas_json(
                 all_objects, [],
@@ -288,3 +414,33 @@ class ProcessingPipeline:
             'error': msg,
             'debug': {},
         }
+
+
+def _has_color_info(bgr_image, saturation_threshold=30, min_colored_px=0.01):
+    """Detecta si una imagen tiene información de color significativa.
+
+    Usa el canal de saturación de HSV: píxeles con saturación alta
+    son colores reales; los grises/negros/blancos tienen baja saturación.
+
+    Esto es más robusto que la desviación RGB porque resiste
+    artefactos JPEG y ruido de cámara.
+
+    Args:
+        bgr_image: imagen en BGR
+        saturation_threshold: umbral de saturación HSV (0-255)
+            para considerar un píxel como coloreado (default 30)
+        min_colored_px: fracción mínima de píxeles coloreados para
+            considerar la imagen como "a color" (default 0.5%)
+
+    Returns:
+        True si la imagen tiene color significativo
+    """
+    h, w = bgr_image.shape[:2]
+    if h * w == 0:
+        return False
+
+    hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+    saturation = hsv[:, :, 1].astype(np.int32)
+    colored = (saturation > saturation_threshold).sum()
+    ratio = colored / (h * w)
+    return ratio > min_colored_px

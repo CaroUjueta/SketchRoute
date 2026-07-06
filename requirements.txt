@@ -16,3 +16,7 @@ sqlparse==0.5.5
 svgwrite==1.4.3
 tinycss2==1.5.1
 webencodings==0.5.1
+scikit-learn==1.9.0
+torch==2.12.1
+torchvision==0.27.1
+# ultralytics  # ← descomentar para usar YOLO (pip install ultralytics)

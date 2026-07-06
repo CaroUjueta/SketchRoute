@@ -3,7 +3,7 @@ import numpy as np
 from collections import defaultdict
 
 
-def build_intersection_graph(horizontals, verticals, snap_dist=15):
+def build_intersection_graph(horizontals, verticals, snap_dist=15, wall_binary=None):
     """Construye un grafo planar de segmentos de pared.
 
     Nodos: puntos extremos e intersecciones de segmentos.
@@ -70,6 +70,7 @@ def build_intersection_graph(horizontals, verticals, snap_dist=15):
         'point_index': point_index,
         'edges': edges,
         'adjacency': adjacency,
+        'wall_binary': wall_binary,
     }
 
 
@@ -209,6 +210,15 @@ def find_rooms(graph_data, min_area=5000, max_area=500000):
 
     # eliminar duplicados (ciclos que son el mismo recinto)
     unique_rooms = _deduplicate_rooms(rooms)
+
+    if not unique_rooms:
+        # fallback: usar contornos sobre la máscara binaria de paredes
+        wall_binary = graph_data.get('wall_binary')
+        if wall_binary is not None:
+            unique_rooms = _find_rooms_from_contours(
+                wall_binary, min_area=5000, max_area=500000,
+            )
+
     return unique_rooms
 
 
@@ -272,6 +282,74 @@ def _polygon_overlap_ratio(poly1, poly2):
         return 0.0
 
     return inter_area / union
+
+
+def _find_rooms_from_contours(wall_binary, min_area=5000, max_area=500000):
+    """Detecta recintos como contornos cerrados en la máscara binaria de paredes.
+
+    Útil como fallback cuando el grafo de segmentos no forma ciclos
+    (ej. fotos reales con trazos fragmentados).
+    """
+    try:
+        from shapely.geometry import Polygon as ShapelyPolygon
+        HAS_SHAPELY = True
+    except ImportError:
+        HAS_SHAPELY = False
+
+    binary = (wall_binary > 0).astype(np.uint8) * 255
+
+    kernel = np.ones((7, 7), np.uint8)
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+    inv = cv2.bitwise_not(closed)
+    contours, hierarchy = cv2.findContours(inv, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    h, w = binary.shape
+    rooms = []
+    for i, cnt in enumerate(contours):
+        # solo contornos internos (hijos de otro contorno) — son habitaciones
+        parent = hierarchy[0][i][3] if hierarchy is not None else -1
+        if parent < 0:
+            continue
+        area = cv2.contourArea(cnt)
+        if area < min_area or area > max_area:
+            continue
+        x, y, cw, ch = cv2.boundingRect(cnt)
+        if x <= 2 and y <= 2 and (x + cw >= w - 2 or y + ch >= h - 2):
+            continue
+
+        poly = cnt.squeeze(axis=1).tolist()
+        if len(poly) < 4:
+            continue
+
+        if HAS_SHAPELY:
+            try:
+                sp = ShapelyPolygon(poly)
+                if not sp.is_valid:
+                    sp = sp.buffer(0)
+                if sp.is_valid and sp.area >= min_area:
+                    simplified = sp.simplify(5, preserve_topology=True)
+                    if len(simplified.exterior.coords) >= 4:
+                        rooms.append({
+                            'polygon': list(simplified.exterior.coords),
+                            'area': sp.area,
+                            'nodes': [],
+                        })
+                        continue
+            except Exception:
+                pass
+
+        epsilon = 0.01 * cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, epsilon, True)
+        if len(approx) >= 4:
+            pts = approx.squeeze(axis=1).tolist()
+            rooms.append({
+                'polygon': pts,
+                'area': area,
+                'nodes': [],
+            })
+
+    return _deduplicate_rooms(rooms)
 
 
 def detect_exterior_contour(horizontals, verticals):
