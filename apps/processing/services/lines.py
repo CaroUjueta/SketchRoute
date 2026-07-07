@@ -40,10 +40,11 @@ def detect_lines_lsd(gray, min_length=20):
         return []
     segs = []
     for line in lines:
-        x1, y1, x2, y2 = line[0]
+        pts = line[0] if line.ndim > 1 and line.shape[-1] == 4 else line
+        x1, y1, x2, y2 = [float(v) for v in pts]
         length = np.hypot(x2 - x1, y2 - y1)
         if length >= min_length:
-            segs.append([float(x1), float(y1), float(x2), float(y2)])
+            segs.append([x1, y1, x2, y2])
     return segs
 
 
@@ -327,20 +328,23 @@ def extend_to_intersections(horizontals, verticals, max_extend=200, margin=5):
         x1, y1, x2, y2 = h
         ly = (y1 + y2) / 2
         lx1, lx2 = min(x1, x2), max(x1, x2)
+        orig_len = lx2 - lx1
+        # No extender un segmento más de 3× su largo original
+        effective_max_extend = min(max_extend, max(orig_len * 3, 50))
 
         vx_vals = (v_arr[:, 0] + v_arr[:, 2]) / 2
         vy_min = np.minimum(v_arr[:, 1], v_arr[:, 3])
         vy_max = np.maximum(v_arr[:, 1], v_arr[:, 3])
 
         # verticales que cruzan esta horizontal
-        crosses = (vy_min - max_extend < ly) & (ly < vy_max + max_extend)
+        crosses = (vy_min - effective_max_extend < ly) & (ly < vy_max + effective_max_extend)
 
         # a la izquierda: verticales <= lx1 + margin
         mask_left = crosses & (vx_vals <= lx1 + margin)
         if np.any(mask_left):
             candidates = vx_vals[mask_left]
             nearest = candidates.max()
-            if lx1 - nearest > 0 and lx1 - nearest < max_extend:
+            if lx1 - nearest > 0 and lx1 - nearest < effective_max_extend:
                 lx1 = nearest
             elif lx1 - nearest <= 0:  # vertical dentro/derecha del extremo
                 # la vertical más cercana a lx1 (puede estar a la derecha)
@@ -355,7 +359,7 @@ def extend_to_intersections(horizontals, verticals, max_extend=200, margin=5):
         if np.any(mask_right):
             candidates = vx_vals[mask_right]
             nearest = candidates.min()
-            if nearest - lx2 > 0 and nearest - lx2 < max_extend:
+            if nearest - lx2 > 0 and nearest - lx2 < effective_max_extend:
                 lx2 = nearest
             elif nearest - lx2 <= 0:  # vertical dentro/izquierda del extremo
                 candidates_left = vx_vals[crosses & (vx_vals <= lx2)]
@@ -376,15 +380,17 @@ def extend_to_intersections(horizontals, verticals, max_extend=200, margin=5):
         vx1, vy1, vx2, vy2 = v
         lx = (vx1 + vx2) / 2
         ly1, ly2 = min(vy1, vy2), max(vy1, vy2)
+        orig_len = ly2 - ly1
+        effective_max_extend = min(max_extend, max(orig_len * 3, 50))
 
         # horizontales que cruzan esta vertical
-        crosses = (hx_min - max_extend < lx) & (lx < hx_max + max_extend)
+        crosses = (hx_min - effective_max_extend < lx) & (lx < hx_max + effective_max_extend)
 
         mask_top = crosses & (hy_vals <= ly1 + margin)
         if np.any(mask_top):
             candidates = hy_vals[mask_top]
             nearest = candidates.max()
-            if ly1 - nearest > 0 and ly1 - nearest < max_extend:
+            if ly1 - nearest > 0 and ly1 - nearest < effective_max_extend:
                 ly1 = nearest
             elif ly1 - nearest <= 0:
                 candidates_bot = hy_vals[crosses & (hy_vals >= ly1)]
@@ -397,7 +403,7 @@ def extend_to_intersections(horizontals, verticals, max_extend=200, margin=5):
         if np.any(mask_bot):
             candidates = hy_vals[mask_bot]
             nearest = candidates.min()
-            if nearest - ly2 > 0 and nearest - ly2 < max_extend:
+            if nearest - ly2 > 0 and nearest - ly2 < effective_max_extend:
                 ly2 = nearest
             elif nearest - ly2 <= 0:
                 candidates_top = hy_vals[crosses & (hy_vals <= ly2)]
@@ -487,20 +493,34 @@ def close_gaps(segments, gap_tol=20):
 def find_wall_gaps(h_segments, v_segments, door_mask=None, min_gap=15, max_gap=120):
     """Detecta vanos como gaps entre segmentos de muro.
 
-    Para cada línea de muro ordena los segmentos y busca espacios.
-    Si door_mask se proporciona, solo devuelve gaps con ≥5 %
-    superposición con la máscara. Devuelve lista de dicts
-    {x, y, width, height}."""
+    Agrupa segmentos horizontales por proximidad en Y (tolerancia de
+    15px) para no perder gaps cuando los segmentos detectados por LSD
+    no están exactamente alineados en Y. Luego busca espacios > min_gap
+    y < max_gap entre segmentos consecutivos.
+
+    Si door_mask se proporciona, solo devuelve gaps con ≥1 %
+    superposición con la máscara (umbral bajo porque la máscara de
+    puerta no siempre cubre el gap perfectamente).
+
+    Devuelve lista de dicts {x, y, width, height}."""
     gaps = []
 
-    lines_h = {}
+    # Agrupar horizontales por proximidad en Y (tolerancia 15px)
+    y_groups = []
     for s in h_segments:
         x1, y1, x2, y2 = s
         y = round((y1 + y2) / 2)
-        lines_h.setdefault(y, []).append((min(x1, x2), max(x1, x2)))
+        placed = False
+        for g in y_groups:
+            if abs(g['y'] - y) <= 15:
+                g['segs'].append((min(x1, x2), max(x1, x2)))
+                placed = True
+                break
+        if not placed:
+            y_groups.append({'y': y, 'segs': [(min(x1, x2), max(x1, x2))]})
 
-    for y, segs in lines_h.items():
-        segs.sort()
+    for group in y_groups:
+        segs = sorted(group['segs'])
         merged = []
         for x1, x2 in segs:
             if not merged:
@@ -512,17 +532,25 @@ def find_wall_gaps(h_segments, v_segments, door_mask=None, min_gap=15, max_gap=1
                 else:
                     gap = x1 - last[1]
                     if min_gap < gap < max_gap:
-                        gaps.append({'x': (last[1] + x1) / 2, 'y': y, 'width': gap, 'height': 8})
+                        gaps.append({'x': (last[1] + x1) / 2, 'y': group['y'], 'width': gap, 'height': 8})
                     merged.append([x1, x2])
 
-    lines_v = {}
+    # Agrupar verticales por proximidad en X
+    x_groups = []
     for s in v_segments:
         x1, y1, x2, y2 = s
         x = round((x1 + x2) / 2)
-        lines_v.setdefault(x, []).append((min(y1, y2), max(y1, y2)))
+        placed = False
+        for g in x_groups:
+            if abs(g['x'] - x) <= 15:
+                g['segs'].append((min(y1, y2), max(y1, y2)))
+                placed = True
+                break
+        if not placed:
+            x_groups.append({'x': x, 'segs': [(min(y1, y2), max(y1, y2))]})
 
-    for x, segs in lines_v.items():
-        segs.sort()
+    for group in x_groups:
+        segs = sorted(group['segs'])
         merged = []
         for y1, y2 in segs:
             if not merged:
@@ -534,20 +562,246 @@ def find_wall_gaps(h_segments, v_segments, door_mask=None, min_gap=15, max_gap=1
                 else:
                     gap = y1 - last[1]
                     if min_gap < gap < max_gap:
-                        gaps.append({'x': x, 'y': (last[1] + y1) / 2, 'width': 8, 'height': gap})
+                        gaps.append({'x': group['x'], 'y': (last[1] + y1) / 2, 'width': 8, 'height': gap})
                     merged.append([y1, y2])
 
-    if door_mask is not None and np.any(door_mask > 0) and gaps:
-        validated = []
-        for g in gaps:
-            x, y, w, h = int(g['x']), int(g['y']), int(g['width']), int(g['height'])
-            x1 = max(0, x - w // 2 - 4)
-            y1 = max(0, y - h // 2 - 4)
-            x2 = min(door_mask.shape[1] - 1, x + w // 2 + 4)
-            y2 = min(door_mask.shape[0] - 1, y + h // 2 + 4)
-            region = door_mask[y1:y2 + 1, x1:x2 + 1]
-            if region.size > 0 and np.sum(region > 0) / region.size > 0.05:
-                validated.append(g)
-        return validated
-
+    # Validación con door_mask (opcional, desactivada porque la
+    # máscara de color suele no coincidir con el vano exacto).
     return gaps
+
+
+def point_to_segment_distance(px, py, x1, y1, x2, y2):
+    """Distancia mínima desde un punto a un segmento de recta."""
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0 and dy == 0:
+        return np.hypot(px - x1, py - y1)
+    t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+    nx = x1 + t * dx
+    ny = y1 + t * dy
+    return np.hypot(px - nx, py - ny)
+
+
+def refine_wall_segments(h_segments, v_segments, snap_y=10, snap_x=10):
+    """Refina segmentos de pared: elimina duplicados paralelos y
+    extiende para formar esquinas limpias.
+
+    1. Agrupa horizontales cercanas en Y, verticales cercanas en X.
+    2. Para cada grupo, fusiona en una sola línea fusionando rangos.
+    3. Extiende cada segmento hasta la perpendicular más cercana.
+
+    Args:
+        h_segments: lista de [x1, y1, x2, y2] (horizontales)
+        v_segments: lista de [x1, y1, x2, y2] (verticales)
+        snap_y: tolerancia para agrupar horizontales por Y
+        snap_x: tolerancia para agrupar verticales por X
+
+    Returns:
+        (h_clean, v_clean): segmentos refinados
+    """
+    # ── 1. Agrupar horizontales por Y ──────────────────────────
+    h_by_y = _group_by_proximity(h_segments, snap_y, axis='y')
+    h_clean = []
+    for y, group in sorted(h_by_y.items()):
+        xs = []
+        for s in group:
+            xs.extend([s[0], s[2]])
+        x_min, x_max = min(xs), max(xs)
+        if x_max - x_min >= 20:
+            h_clean.append([x_min, y, x_max, y])
+
+    # ── 2. Agrupar verticales por X ────────────────────────────
+    v_by_x = _group_by_proximity(v_segments, snap_x, axis='x')
+    v_clean = []
+    for x, group in sorted(v_by_x.items()):
+        ys = []
+        for s in group:
+            ys.extend([s[1], s[3]])
+        y_min, y_max = min(ys), max(ys)
+        if y_max - y_min >= 20:
+            # conservar la posición del segmento más largo (no el promedio)
+            best = max(group, key=lambda s: abs(s[3] - s[1]))
+            bx = (best[0] + best[2]) / 2  # X del segmento más largo
+            v_clean.append([bx, y_min, bx, y_max])
+
+    # ── 3. Extender cada horizontal hasta la vertical más cercana ──
+    v_arr = np.array(v_clean)
+
+    if len(v_arr) == 0:
+        return h_clean, v_clean
+
+    vx_vals = (v_arr[:, 0] + v_arr[:, 2]) / 2
+    vy_min = np.minimum(v_arr[:, 1], v_arr[:, 3])
+    vy_max = np.maximum(v_arr[:, 1], v_arr[:, 3])
+
+    h_out = []
+    for h in h_clean:
+        x1, y, x2, _ = h
+
+        # filtrar verticales que alcanzan esta Y
+        reach = (vy_min - snap_y <= y) & (y <= vy_max + snap_y)
+        if not np.any(reach):
+            if x2 - x1 >= 20:
+                h_out.append([x1, y, x2, y])
+            continue
+
+        vs_at_y = vx_vals[reach]
+        vymin_at_y = vy_min[reach]
+        vymax_at_y = vy_max[reach]
+
+        # ── extender izquierda ──────────────────────────────
+        left_vs = vs_at_y[vs_at_y < x1]
+        # ¿x1 está en una vertical que TERMINA (arranca/acaba) en y?
+        near_left = np.abs(vs_at_y - x1) <= snap_x
+        terminates_left = np.any(
+            near_left & ((np.abs(vymin_at_y - y) <= snap_y) |
+                         (np.abs(vymax_at_y - y) <= snap_y))
+        )
+        if not terminates_left and len(left_vs) > 0:
+            x1 = left_vs.min()
+
+        # ── extender derecha ────────────────────────────────
+        right_vs = vs_at_y[vs_at_y > x2]
+        near_right = np.abs(vs_at_y - x2) <= snap_x
+        terminates_right = np.any(
+            near_right & ((np.abs(vymin_at_y - y) <= snap_y) |
+                          (np.abs(vymax_at_y - y) <= snap_y))
+        )
+        if not terminates_right and len(right_vs) > 0:
+            x2 = right_vs.max()
+
+        if x2 - x1 >= 20:
+            h_out.append([x1, y, x2, y])
+
+    # ── 4. Extender cada vertical hasta la horizontal más cercana ──
+    v_out = []
+    if len(h_out) == 0:
+        return h_out, v_clean
+
+    h_arr2 = np.array(h_out)
+    hy_vals = (h_arr2[:, 1] + h_arr2[:, 3]) / 2
+    hx_min = np.minimum(h_arr2[:, 0], h_arr2[:, 2])
+    hx_max = np.maximum(h_arr2[:, 0], h_arr2[:, 2])
+
+    for v in v_clean:
+        x, y1, _, y2 = v
+
+        reach = (hx_min - snap_x <= x) & (x <= hx_max + snap_x)
+        if not np.any(reach):
+            if y2 - y1 >= 20:
+                v_out.append([x, y1, x, y2])
+            continue
+
+        hs_at_x = hy_vals[reach]
+        hxmin_at_x = hx_min[reach]
+        hxmax_at_x = hx_max[reach]
+
+        # ── extender arriba ─────────────────────────────────
+        top_hs = hs_at_x[hs_at_x < y1]
+        # ¿y1 está en una horizontal que TERMINA (arranca/acaba) en x?
+        near_top = np.abs(hs_at_x - y1) <= snap_y
+        terminates_top = np.any(
+            near_top & ((np.abs(hxmin_at_x - x) <= snap_x) |
+                        (np.abs(hxmax_at_x - x) <= snap_x))
+        )
+        if not terminates_top and len(top_hs) > 0:
+            y1 = top_hs.max()
+
+        # ── extender abajo ──────────────────────────────────
+        bot_hs = hs_at_x[hs_at_x > y2]
+        near_bot = np.abs(hs_at_x - y2) <= snap_y
+        terminates_bot = np.any(
+            near_bot & ((np.abs(hxmin_at_x - x) <= snap_x) |
+                        (np.abs(hxmax_at_x - x) <= snap_x))
+        )
+        if not terminates_bot and len(bot_hs) > 0:
+            y2 = bot_hs.min()
+
+        if y2 - y1 >= 20:
+            v_out.append([x, y1, x, y2])
+
+    return h_out, v_out
+
+
+def deduplicate_parallel_walls(segments, h_tol=12, v_tol=12):
+    """Elimina segmentos de pared paralelos muy cercanos (ej. doble-trazo
+    de la misma pared después de snap_to_grid).  Para horizontales agrupa
+    por Y y solapamiento en X; para verticales por X y solapamiento en Y.
+    Dentro de cada grupo conserva solo el segmento más largo."""
+    h_segs = [s for s in segments if _is_horizontal(s)]
+    v_segs = [s for s in segments if not _is_horizontal(s)]
+
+    kept = []
+
+    # horizontales: agrupar por Y y solapamiento en X
+    h_groups = _group_by_proximity(h_segs, h_tol, axis='y')
+    for y, group in h_groups.items():
+        # entre segmentos del mismo grupo Y, solo fusionar si solapan en X
+        subgroups = []
+        for s in sorted(group, key=lambda x: x[0]):
+            sx1, _, sx2, _ = s
+            merged = False
+            for sg in subgroups:
+                gx1 = min(s[0] for s in sg)
+                gx2 = max(s[2] for s in sg)
+                # solapamiento: al menos 20px de overlap
+                overlap = min(sx2, gx2) - max(sx1, gx1)
+                if overlap >= 20:
+                    sg.append(s)
+                    merged = True
+                    break
+            if not merged:
+                subgroups.append([s])
+        for sg in subgroups:
+            best = max(sg, key=lambda s: abs(s[2] - s[0]))
+            kept.append(best)
+
+    # verticales: agrupar por X y solapamiento en Y
+    v_groups = _group_by_proximity(v_segs, v_tol, axis='x')
+    for x, group in v_groups.items():
+        subgroups = []
+        for s in sorted(group, key=lambda s: s[1]):
+            _, sy1, _, sy2 = s
+            merged = False
+            for sg in subgroups:
+                gy1 = min(s[1] for s in sg)
+                gy2 = max(s[3] for s in sg)
+                overlap = min(sy2, gy2) - max(sy1, gy1)
+                if overlap >= 20:
+                    sg.append(s)
+                    merged = True
+                    break
+            if not merged:
+                subgroups.append([s])
+        for sg in subgroups:
+            best = max(sg, key=lambda s: abs(s[3] - s[1]))
+            kept.append(best)
+
+    return kept
+
+
+def _group_by_proximity(segments, tol, axis='y'):
+    """Agrupa segmentos paralelos cercanos por su coordenada
+    media en el eje dado.  axis='y' agrupa horizontales, 'x' agrupa verticales."""
+    idx = 1 if axis == 'y' else 0
+    groups = {}
+    used = set()
+    sorted_segs = sorted(segments, key=lambda s: (s[idx] + s[idx + 2]) / 2)
+
+    for i, s in enumerate(sorted_segs):
+        if i in used:
+            continue
+        key = (s[idx] + s[idx + 2]) / 2
+        group = [s]
+        used.add(i)
+        for j in range(i + 1, len(sorted_segs)):
+            if j in used:
+                continue
+            sj = sorted_segs[j]
+            keyj = (sj[idx] + sj[idx + 2]) / 2
+            if abs(keyj - key) <= tol:
+                group.append(sj)
+                used.add(j)
+        # usar la Y media del grupo como clave final
+        avg_y = sum((s[idx] + s[idx + 2]) / 2 for s in group) / len(group)
+        groups[round(avg_y)] = group
+    return groups

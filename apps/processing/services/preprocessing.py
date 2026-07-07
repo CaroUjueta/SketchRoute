@@ -193,7 +193,7 @@ def _is_nearly_rect(pts, angle_tol=10, aspect_tol=0.3):
         v2 = d - c
         if np.linalg.norm(v1) < 1 or np.linalg.norm(v2) < 1:
             return True
-        cross = abs(np.cross(v1, v2))
+        cross = abs(v1[0]*v2[1] - v1[1]*v2[0])
         norm = np.linalg.norm(v1) * np.linalg.norm(v2)
         return cross / norm < 0.15  # seno del ángulo < 0.15
 
@@ -395,16 +395,26 @@ def segment_by_color(bgr_image):
 
 
 def resize_mask_to_canvas(mask_dict, target_w=1320, target_h=864):
-    """Redimensiona todas las máscaras al canvas oficio."""
+    """Redimensiona todas las máscaras al canvas oficio (direct resize, no letterbox)."""
     result = {}
     for elem_type, data in mask_dict.items():
-        binary, info = resize_to_canvas(data['binary'], target_w, target_h)
+        m = data['binary']
+        h, w = m.shape
+        binary = cv2.resize(m, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
         result[elem_type] = {
             'binary': binary,
             'stroke': data['stroke'],
             'stroke_width': data['stroke_width'],
             'sr_type': data['sr_type'],
-            'scale_info': info,
+            'scale_info': {
+                'scale': min(target_w / w, target_h / h),
+                'offset_x': 0,
+                'offset_y': 0,
+                'orig_w': w,
+                'orig_h': h,
+                'canvas_w': target_w,
+                'canvas_h': target_h,
+            },
         }
     return result
 
@@ -499,15 +509,41 @@ def segment_by_clustering(bgr_image, n_clusters=5):
 def segment_by_color_or_clustering(bgr_image, use_clustering=True, n_clusters=5):
     """Elige el método de segmentación según disponibilidad.
 
-    Si use_clustering=True y sklearn está disponible, usa k-means.
-    Si no, usa la segmentación por rangos HSV fijos (original).
+    Primero intenta k-means (use_clustering=True). Independientemente,
+    siempre detecta puertas por HSV azul y las fusiona con la máscara
+    de k-means, ya que las líneas azules finas de puerta suelen perderse
+    en el clustering (quedan absorbidas por el cluster de pared o fondo).
     """
+    masks = None
     if use_clustering:
         try:
-            return segment_by_clustering(bgr_image, n_clusters)
+            masks = segment_by_clustering(bgr_image, n_clusters)
         except Exception:
             pass
-    return segment_by_color(bgr_image)
+
+    if masks is None:
+        masks = segment_by_color(bgr_image)
+
+    # Fusionar máscara HSV de puerta (azul) sobre el resultado de k-means
+    hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+    door_hsv = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+    for low, high in COLOR_MAP.get('puerta', {}).get('hsv_ranges', []):
+        mask = cv2.inRange(hsv, np.array(low), np.array(high))
+        door_hsv = cv2.bitwise_or(door_hsv, mask)
+    kernel = np.ones((3, 3), np.uint8)
+    door_hsv = cv2.morphologyEx(door_hsv, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    puerta_data = masks.get('puerta', {})
+    existing = puerta_data.get('binary', np.zeros(bgr_image.shape[:2], dtype=np.uint8))
+    cfg = COLOR_MAP.get('puerta', {})
+    masks['puerta'] = {
+        'binary': cv2.bitwise_or(existing, door_hsv),
+        'stroke': cfg.get('stroke', '#000000'),
+        'stroke_width': cfg.get('stroke_width', 3),
+        'sr_type': 'puerta',
+    }
+
+    return masks
 
 
 # ── Separación por ancho de trazo ────────────────────────────

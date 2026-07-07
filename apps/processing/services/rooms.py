@@ -198,6 +198,13 @@ def find_rooms(graph_data, min_area=5000, max_area=500000):
                 polygon = [index_to_point[n] for n in path]
                 area = _polygon_area(polygon)
                 if min_area < area < max_area:
+                    # filtrar recintos muy delgados
+                    xs = [p[0] for p in polygon]
+                    ys = [p[1] for p in polygon]
+                    pw = max(xs) - min(xs)
+                    ph = max(ys) - min(ys)
+                    if pw < 40 or ph < 40:
+                        continue
                     rooms.append({
                         'polygon': polygon,
                         'area': area,
@@ -285,11 +292,7 @@ def _polygon_overlap_ratio(poly1, poly2):
 
 
 def _find_rooms_from_contours(wall_binary, min_area=5000, max_area=500000):
-    """Detecta recintos como contornos cerrados en la máscara binaria de paredes.
-
-    Útil como fallback cuando el grafo de segmentos no forma ciclos
-    (ej. fotos reales con trazos fragmentados).
-    """
+    """Detecta recintos como contornos cerrados en la máscara binaria de paredes."""
     try:
         from shapely.geometry import Polygon as ShapelyPolygon
         HAS_SHAPELY = True
@@ -300,6 +303,19 @@ def _find_rooms_from_contours(wall_binary, min_area=5000, max_area=500000):
 
     kernel = np.ones((7, 7), np.uint8)
     closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+    # bounding box de toda la región de paredes (para excluir el contorno exterior)
+    rows_w = np.any(closed, axis=1)
+    cols_w = np.any(closed, axis=0)
+    if rows_w.any() and cols_w.any():
+        ys = np.where(rows_w)[0]
+        xs = np.where(cols_w)[0]
+        wall_bbox = (xs[0], ys[0], xs[-1], ys[-1])
+        wall_bbox_w = wall_bbox[2] - wall_bbox[0]
+        wall_bbox_h = wall_bbox[3] - wall_bbox[1]
+    else:
+        wall_bbox = (0, 0, binary.shape[1], binary.shape[0])
+        wall_bbox_w, wall_bbox_h = binary.shape[1], binary.shape[0]
 
     inv = cv2.bitwise_not(closed)
     contours, hierarchy = cv2.findContours(inv, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -316,6 +332,16 @@ def _find_rooms_from_contours(wall_binary, min_area=5000, max_area=500000):
             continue
         x, y, cw, ch = cv2.boundingRect(cnt)
         if x <= 2 and y <= 2 and (x + cw >= w - 2 or y + ch >= h - 2):
+            continue
+        # excluir el contorno exterior: si cubre > 80% del wall_bbox es fachada
+        if wall_bbox_w > 0 and wall_bbox_h > 0:
+            overlap_x = max(0, min(x + cw, wall_bbox[2]) - max(x, wall_bbox[0]))
+            overlap_y = max(0, min(y + ch, wall_bbox[3]) - max(y, wall_bbox[1]))
+            overlap_ratio = (overlap_x * overlap_y) / (wall_bbox_w * wall_bbox_h)
+            if overlap_ratio > 0.8:
+                continue
+        # excluir recintos muy delgados (pseudohabitaciones entre paredes paralelas)
+        if cw < 40 or ch < 40:
             continue
 
         poly = cnt.squeeze(axis=1).tolist()
