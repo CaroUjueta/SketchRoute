@@ -708,6 +708,15 @@ footer p {
 }
 .auth-foot a { color: var(--cyan); font-weight: 500; }
 
+/* Reglas de contraseña de Django: compactas y discretas, no bullets gigantes */
+.auth-card ul {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  padding-left: 1.1rem;
+  margin: 0.35rem 0 0.9rem;
+  line-height: 1.5;
+}
+
 /* ── GENERAL BUTTONS ─────────────────────────────────────── */
 
 .btn {
