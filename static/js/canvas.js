@@ -326,7 +326,24 @@ const SR = (() => {
       actionHandler: (eventData, transform, x, y) => {
         const obj = transform.target;
         const ends = lineEndAbs(obj);
-        const p = snapPoint({ x, y }, collectEndpoints(obj));
+        const others = collectEndpoints(obj);
+        let p = snapPoint({ x, y }, others);
+        state.guides = [];
+        if (p === undefined || (p.x === x && p.y === y)) {
+          // sin enganche total: alinear por eje con extremos de otras paredes
+          p = { x, y };
+          let bx = null, by = null;
+          others.forEach(q => {
+            if (Math.abs(q.x - p.x) < 7 && (!bx || Math.abs(q.x - p.x) < Math.abs(bx - p.x))) bx = q.x;
+            if (Math.abs(q.y - p.y) < 7 && (!by || Math.abs(q.y - p.y) < Math.abs(by - p.y))) by = q.y;
+          });
+          if (bx !== null) { p.x = bx; state.guides.push({ v: bx }); }
+          if (by !== null) { p.y = by; state.guides.push({ h: by }); }
+          // ortogonal contra el otro extremo de la MISMA pared
+          const other = ends[1 - idx];
+          if (Math.abs(p.x - other.x) < 9) p.x = other.x;
+          if (Math.abs(p.y - other.y) < 9) p.y = other.y;
+        }
         ends[idx] = p;
         obj.set({
           x1: ends[0].x, y1: ends[0].y, x2: ends[1].x, y2: ends[1].y,
@@ -926,9 +943,21 @@ const SR = (() => {
         [tr.top, tr.top + tr.height / 2, tr.top + tr.height].forEach(y =>
           my.forEach(m => { const d = y - m; if (Math.abs(d) < thr && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, y }; }));
       });
+      // centro de la hoja como candidato (estilo Canva)
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      if (Math.abs(DOC.w / 2 - cx) < thr && (!bx || Math.abs(DOC.w / 2 - cx) < Math.abs(bx.d))) bx = { d: DOC.w / 2 - cx, x: DOC.w / 2 };
+      if (Math.abs(DOC.h / 2 - cy) < thr && (!by || Math.abs(DOC.h / 2 - cy) < Math.abs(by.d))) by = { d: DOC.h / 2 - cy, y: DOC.h / 2 };
       if (bx) { o.set('left', o.left + bx.d); state.guides.push({ v: bx.x }); }
       if (by) { o.set('top', o.top + by.d); state.guides.push({ h: by.y }); }
       if (bx || by) o.setCoords();
+    });
+
+    // Rotación con snap a ángulos estándar (0, 15, 30, 45, 90, …)
+    canvas.on('object:rotating', (opt) => {
+      const o = opt.target;
+      if (!o) return;
+      const snap = Math.round(o.angle / 15) * 15;
+      if (Math.abs(o.angle - snap) < 5) o.angle = ((snap % 360) + 360) % 360;
     });
 
     canvas.on('mouse:up', () => {
@@ -2124,6 +2153,7 @@ const SR = (() => {
 
     const toHide = canvas.getObjects().filter((o) => {
       if (o.srHidden) return true;                              // puntitos verdes
+      if (o.srCat === 'ruta-auto') return true;                 // flechas auto legacy: nunca al PDF
       if (o.srType === 'ruta-evac' && mode !== 'evac') return true;
       if (o.srType === 'ruta-san'  && mode !== 'san')  return true;
       return false;
