@@ -115,6 +115,7 @@ const SR = (() => {
           state.loadingHistory = false;
           explodeRouteGroups();
           fixupManualArrows();
+          fixupWallCaps();
           ensureHeader();
           pushHistory(true);
           updateEmptyHint();
@@ -278,6 +279,35 @@ const SR = (() => {
     return { x, y };
   }
 
+  // Proyecta el punto sobre la pared más cercana (≤14px): las puertas se
+  // dibujan ENGANCHADAS a la pared, centradas en su eje.
+  function wallAt(p) {
+    let best = null, bd = 14;
+    canvas.getObjects().forEach(o => {
+      if (o.srType !== 'pared' || o.type !== 'line') return;
+      const m = o.calcTransformMatrix();
+      const lp = o.calcLinePoints();
+      const a = fabric.util.transformPoint(new fabric.Point(lp.x1, lp.y1), m);
+      const b = fabric.util.transformPoint(new fabric.Point(lp.x2, lp.y2), m);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+      const q = { x: a.x + dx * t, y: a.y + dy * t };
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bd) { bd = d; best = { q, dir: Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v' }; }
+    });
+    return best;
+  }
+
+  // Migra paredes/muebles guardados con cap redondo al cuadrado.
+  function fixupWallCaps() {
+    canvas.getObjects().forEach(o => {
+      if ((o.srType === 'pared' || o.srType === 'mueble') && o.type === 'line' && o.strokeLineCap !== 'square') {
+        o.set('strokeLineCap', 'square');
+      }
+    });
+  }
+
   /* ── Eventos de dibujo ──────────────────────────────────── */
 
   function bindCanvasEvents() {
@@ -317,7 +347,17 @@ const SR = (() => {
       if (t === 'origen-evac') { placeMarker(p.x, p.y); return; }
 
       state.snapPts = collectEndpoints();
-      const sp = (t === 'rect') ? p : snapPoint(p, state.snapPts);
+      let sp;
+      state.wallDir = null;
+      if (t === 'rect') {
+        sp = p;
+      } else if (t === 'door' || t === 'vano') {
+        const w = wallAt(p);                       // enganchar a la pared
+        sp = w ? w.q : snapPoint(p, state.snapPts);
+        state.wallDir = w ? w.dir : null;
+      } else {
+        sp = snapPoint(p, state.snapPts);
+      }
       state.isDown = true;
       state.start = sp;
       state.suppress = true;
@@ -330,13 +370,15 @@ const SR = (() => {
           srType: 'zona', srCat: 'shape',
         });
       } else if (t === 'wall') {
+        // cap cuadrado: dos paredes que se encuentran en un extremo forman
+        // esquina a inglete perfecta (el redondo dejaba "colitas" salidas)
         state.draft = new fabric.Line([sp.x, sp.y, sp.x, sp.y], {
-          stroke: '#1f2937', strokeWidth: 8, strokeLineCap: 'round',
+          stroke: '#1f2937', strokeWidth: 8, strokeLineCap: 'square',
           srType: 'pared', srCat: 'shape',
         });
       } else if (t === 'furniture') {
         state.draft = new fabric.Line([sp.x, sp.y, sp.x, sp.y], {
-          stroke: '#6b7280', strokeWidth: 2, strokeLineCap: 'round',
+          stroke: '#6b7280', strokeWidth: 2, strokeLineCap: 'square',
           srType: 'mueble', srCat: 'shape',
         });
       } else if (t === 'door' || t === 'vano') {
@@ -366,6 +408,10 @@ const SR = (() => {
           left:   Math.min(p.x, state.start.x),
           top:    Math.min(p.y, state.start.y),
         });
+      } else if ((state.tool === 'door' || state.tool === 'vano') && state.wallDir) {
+        // deslizar a lo largo de la pared enganchada
+        const end = state.wallDir === 'h' ? { x: p.x, y: state.start.y } : { x: state.start.x, y: p.y };
+        state.draft.set({ x2: end.x, y2: end.y });
       } else {
         let end = snapPoint(p, state.snapPts);
         if (end === p) end = orthoSnap(state.start, p);
@@ -401,7 +447,22 @@ const SR = (() => {
       const tiny = (t === 'rect')
         ? (d.width < 6 && d.height < 6)
         : (Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 8);
-      if (tiny) canvas.remove(d);
+      if (tiny) { canvas.remove(d); pushHistory(); return; }
+
+      if (t === 'wall' || t === 'furniture') {
+        // Quirk de fabric.Line: la línea dibujada queda corrida strokeWidth/2
+        // en el eje perpendicular (por eso las esquinas no casaban). Se
+        // reconstruye anclada a su centro geométrico → extremos exactos.
+        state.suppress = true;
+        canvas.remove(d);
+        canvas.add(new fabric.Line([d.x1, d.y1, d.x2, d.y2], {
+          stroke: d.stroke, strokeWidth: d.strokeWidth, strokeLineCap: 'square',
+          srType: d.srType, srCat: d.srCat,
+          originX: 'center', originY: 'center',
+          left: (d.x1 + d.x2) / 2, top: (d.y1 + d.y2) / 2,
+        }));
+        state.suppress = false;
+      }
       pushHistory();
     });
 
@@ -1707,6 +1768,7 @@ const SR = (() => {
     canvas.loadFromJSON(JSON.parse(str), () => {
       ensurePageBg();   // la hoja no viaja en el snapshot (excludeFromExport)
       fixupManualArrows();
+      fixupWallCaps();
       canvas.renderAll();
       state.loadingHistory = false;
     });

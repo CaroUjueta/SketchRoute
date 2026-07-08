@@ -67,8 +67,8 @@
           <p class="ed-hint">Subí un croquis a papel (foto o scan) y detectamos paredes, puertas y muebles por colores:</p>
           <div class="ed-color-guide">
             <div class="ed-color-row"><span class="ed-color-swatch" style="background:#1f2937;border:1px solid #666;"></span><span class="ed-color-label"><b>Negro</b> — Paredes</span></div>
-            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#1d4ed8;"></span><span class="ed-color-label"><b>Azul</b> — Puertas (con arco)</span></div>
-            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#059669;"></span><span class="ed-color-label"><b>Verde</b> — Vanos / aberturas</span></div>
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#1d4ed8;"></span><span class="ed-color-label"><b>Azul</b> — Puerta batiente (con arco)</span></div>
+            <div class="ed-color-row"><span class="ed-color-swatch" style="background:#059669;"></span><span class="ed-color-label"><b>Verde</b> — Puertas / aberturas</span></div>
             <div class="ed-color-row"><span class="ed-color-swatch" style="background:#dc2626;"></span><span class="ed-color-label"><b>Rojo</b> — Muebles / obstáculos</span></div>
           </div>
           <form method="post" action="{% url 'upload_image' plan_pk=plan.id %}" enctype="multipart/form-data" style="display:contents;">
@@ -106,13 +106,13 @@
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/></svg>
               <span>Mueble</span>
             </button>
-            <button class="ed-tool" onclick="SR.setTool('door',this)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21V5M5 5h6a8 8 0 0 1 8 8"/></svg>
+            <button class="ed-tool" onclick="SR.setTool('vano',this)" title="Puerta simple: hueco en la pared, sin hoja">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4v16M19 4v16"/><path d="M9 12h6" stroke-dasharray="2 2"/></svg>
               <span>Puerta</span>
             </button>
-            <button class="ed-tool" onclick="SR.setTool('vano',this)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4v16M19 4v16"/><path d="M9 12h6" stroke-dasharray="2 2"/></svg>
-              <span>Vano</span>
+            <button class="ed-tool" onclick="SR.setTool('door',this)" title="Puerta batiente: con hoja y arco de apertura">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21V5M5 5h6a8 8 0 0 1 8 8"/></svg>
+              <span>P. batiente</span>
             </button>
             <button class="ed-tool" onclick="SR.setTool('rect',this)">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
@@ -338,7 +338,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=15"></script>
+<script src="{% static 'js/canvas.js' %}?v=17"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
