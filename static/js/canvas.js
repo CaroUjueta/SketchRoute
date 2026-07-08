@@ -1872,8 +1872,9 @@ const SR = (() => {
     if (!modes || !modes.length) return;
     canvas.discardActiveObject();
 
-    // (re)generar las rutas de los modos elegidos para que estén frescas
-    modes.forEach(m => generate(m));
+    // Generación automática DESACTIVADA: el PDF muestra exactamente lo que
+    // hay en el lienzo (antes se regeneraban rutas A* aquí y aparecían
+    // flechas que el usuario nunca dibujó).
     // si hay leyenda, refrescarla para que refleje el contenido actual
     if (canvas.getObjects().some(o => o.srType === 'leyenda')) {
       try { await buildLegend(); } catch (e) { console.error('leyenda:', e); }
