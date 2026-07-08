@@ -195,6 +195,7 @@ const SR = (() => {
   /* ── Herramientas ───────────────────────────────────────── */
 
   function setTool(tool, btnEl) {
+    if (state.tool === 'ruta' && tool !== 'ruta') { clearRoutePreview(); state.routePts = []; }
     state.tool = tool;
     state.isDown = false;
     state.suppress = false;
@@ -345,6 +346,11 @@ const SR = (() => {
       const p = canvas.getPointer(opt.e);
       if (t === 'text')        { addText(p.x, p.y); return; }
       if (t === 'origen-evac') { placeMarker(p.x, p.y); return; }
+      if (t === 'ruta') {
+        // se decide en mouse:up si fue clic (vértice) o arrastre (mano alzada)
+        state.rDrag = true; state.rMoved = false; state.freePts = [p];
+        return;
+      }
 
       state.snapPts = collectEndpoints();
       let sp;
@@ -398,6 +404,30 @@ const SR = (() => {
         canvas.requestRenderAll();
         return;
       }
+      if (state.tool === 'ruta') {
+        const p = canvas.getPointer(opt.e);
+        if (state.rDrag) {
+          state.freePts.push(p);
+          if (!state.rMoved && Math.hypot(p.x - state.freePts[0].x, p.y - state.freePts[0].y) > 12) state.rMoved = true;
+          if (state.rMoved) {
+            // preview del trazo libre: una sola polilínea temporal
+            clearRoutePreview();
+            const spec = ROUTE_KINDS[state.routeKind];
+            const pl = new fabric.Polyline(state.freePts.map(q => ({ x: q.x, y: q.y })), {
+              fill: 'transparent', stroke: spec.color, strokeWidth: 2, strokeDashArray: [6, 5],
+              selectable: false, evented: false, srCat: 'temp', objectCaching: false,
+            });
+            state.suppress = true; canvas.add(pl); state.suppress = false;
+            state.routePreview = [pl];
+            canvas.requestRenderAll();
+          }
+        } else if ((state.routePts || []).length) {
+          const last = state.routePts[state.routePts.length - 1];
+          const c = Math.abs(p.x - last.x) >= Math.abs(p.y - last.y) ? { x: p.x, y: last.y } : { x: last.x, y: p.y };
+          drawRoutePreview(c);
+        }
+        return;
+      }
       if (!state.isDown || !state.draft) return;
       const p = canvas.getPointer(opt.e);
 
@@ -424,6 +454,19 @@ const SR = (() => {
       if (state.panning) {
         state.panning = false;
         canvas.setViewportTransform(canvas.viewportTransform); // recalcula coords de selección
+        return;
+      }
+      if (state.tool === 'ruta' && state.rDrag) {
+        state.rDrag = false;
+        const p = canvas.getPointer(opt.e);
+        if (state.rMoved) {
+          state.routePts = rdp(state.freePts, 10);   // mano alzada → simplificar
+          finalizeRoute();
+        } else {
+          state.routePts = state.routePts || [];
+          state.routePts.push(p);                    // clic → vértice
+          drawRoutePreview(null);
+        }
         return;
       }
       if (!state.isDown) return;
@@ -465,6 +508,8 @@ const SR = (() => {
       }
       pushHistory();
     });
+
+    canvas.on('mouse:dblclick', () => { if (state.tool === 'ruta') finalizeRoute(); });
 
     // Zoom con la rueda, centrado en el cursor.
     canvas.on('mouse:wheel', (opt) => {
@@ -727,7 +772,16 @@ const SR = (() => {
     const spec = ARROW_TYPES[k];
     const o = canvas.getActiveObject();
     if (!spec || !o || o.srCat !== 'ruta-manual') return;
-    o.set({ stroke: spec.color, fill: spec.color });
+    if (o.type === 'group') {
+      // ruta dibujada: recolorear todos los tramos y actualizar su tipo
+      o.forEachObject(ch => {
+        ch.set('stroke', spec.color);
+        if (ch.fill && ch.fill !== 'transparent') ch.set('fill', spec.color);
+        ch.srType = 'ruta-' + spec.mode;
+      });
+    } else {
+      o.set({ stroke: spec.color, fill: spec.color });
+    }
     o.srType = 'ruta-' + spec.mode;
     canvas.requestRenderAll(); pushHistory();
     setStatus(spec.mode === 'evac' ? 'Flecha → ruta de evacuación' : 'Flecha → ruta sanitaria');
@@ -855,6 +909,104 @@ const SR = (() => {
     canvas.add(c);
     pushHistory();
     setStatus('Origen colocado (no sale en el PDF)', 'ok');
+  }
+
+  /* ── Herramienta RUTA (polilínea por clics o mano alzada) ── */
+
+  const ROUTE_KINDS = {
+    evac:       { color: '#16a34a', mode: 'evac' },
+    ordinaria:  { color: '#111827', mode: 'san' },
+    reciclable: { color: '#9ca3af', mode: 'san' },
+    biosani:    { color: '#dc2626', mode: 'san' },
+  };
+
+  function setRouteTool(kind, btnEl) {
+    state.routeKind = ROUTE_KINDS[kind] ? kind : 'evac';
+    setTool('ruta', btnEl);
+    setStatus('Ruta: clic por cada punto (Enter/doble clic termina) o dibujá a mano alzada');
+  }
+
+  function clearRoutePreview() {
+    state.suppress = true;
+    (state.routePreview || []).forEach(o => canvas.remove(o));
+    state.suppress = false;
+    state.routePreview = [];
+  }
+
+  function drawRoutePreview(cursor) {
+    clearRoutePreview();
+    const pts = state.routePts;
+    if (!pts.length) return;
+    const spec = ROUTE_KINDS[state.routeKind];
+    const all = cursor ? pts.concat([cursor]) : pts;
+    const segs = [];
+    for (let i = 1; i < all.length; i++) {
+      segs.push(new fabric.Line([all[i-1].x, all[i-1].y, all[i].x, all[i].y], {
+        stroke: spec.color, strokeWidth: 2, strokeDashArray: [6, 5],
+        selectable: false, evented: false, srCat: 'temp',
+      }));
+    }
+    state.suppress = true;
+    segs.forEach(o => canvas.add(o));
+    state.suppress = false;
+    state.routePreview = segs;
+    canvas.requestRenderAll();
+  }
+
+  // Douglas-Peucker mínimo para el trazo a mano alzada.
+  function rdp(pts, eps) {
+    if (pts.length < 3) return pts;
+    const a = pts[0], b = pts[pts.length - 1];
+    let maxD = 0, idx = 0;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const d = Math.abs(dy * pts[i].x - dx * pts[i].y + b.x * a.y - b.y * a.x) / len;
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (maxD <= eps) return [a, b];
+    return rdp(pts.slice(0, idx + 1), eps).slice(0, -1).concat(rdp(pts.slice(idx), eps));
+  }
+
+  // Endereza cualquier secuencia de puntos a tramos H/V y funde los colineales.
+  function toOrtho(pts) {
+    if (pts.length < 2) return pts;
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const last = out[out.length - 1], p = pts[i];
+      const dx = p.x - last.x, dy = p.y - last.y;
+      const q = Math.abs(dx) >= Math.abs(dy) ? { x: p.x, y: last.y } : { x: last.x, y: p.y };
+      if (Math.hypot(q.x - last.x, q.y - last.y) < 6) continue;
+      out.push(q);
+    }
+    // fundir tramos colineales consecutivos
+    const merged = [out[0]];
+    for (let i = 1; i < out.length; i++) {
+      const prev2 = merged[merged.length - 2], prev = merged[merged.length - 1], p = out[i];
+      if (prev2 && ((prev2.y === prev.y && prev.y === p.y) || (prev2.x === prev.x && prev.x === p.x))) {
+        merged[merged.length - 1] = p;
+      } else merged.push(p);
+    }
+    return merged;
+  }
+
+  function finalizeRoute() {
+    const pts = state.routePts || [];
+    clearRoutePreview();
+    state.routePts = [];
+    if (pts.length < 2) { canvas.requestRenderAll(); return; }
+    const spec = ROUTE_KINDS[state.routeKind];
+    const ortho = toOrtho(pts);
+    const parts = makeRouteSafe(ortho, spec.color, spec.mode);
+    if (!parts) return;
+    const g = new fabric.Group(parts, { srType: 'ruta-' + spec.mode, srCat: 'ruta-manual' });
+    state.suppress = true;
+    canvas.add(g);
+    state.suppress = false;
+    canvas.setActiveObject(g);
+    canvas.requestRenderAll();
+    pushHistory();
+    setStatus('Ruta dibujada — podés moverla o reclasificarla', 'ok');
   }
 
   /* ── Leyenda automática + cartela ───────────────────────── */
@@ -1680,7 +1832,19 @@ const SR = (() => {
     return doorCenter(best);
   }
 
-  const clearAll = () => { state.suppress = true; clearRoutes('evac'); clearRoutes('san'); clearWarnings(); state.suppress = false; pushHistory(); setStatus('Rutas eliminadas'); };
+  // Sin generación automática, "limpiar" borra TODAS las flechas (auto legacy + manuales).
+  const clearAll = () => {
+    state.suppress = true;
+    canvas.getObjects()
+      .filter(o => o.srCat === 'ruta-auto' || o.srCat === 'ruta-manual')
+      .forEach(o => canvas.remove(o));
+    clearWarnings();
+    state.suppress = false;
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+    pushHistory();
+    setStatus('Todas las flechas eliminadas');
+  };
 
   /* ── Selección / borrado ────────────────────────────────── */
 
@@ -1952,7 +2116,15 @@ const SR = (() => {
       else if (e.ctrlKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected(); deleteSelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); }
-      else if (e.key === 'Escape') backToSelect();
+      else if (e.key === 'Enter' && state.tool === 'ruta') { e.preventDefault(); finalizeRoute(); }
+      else if (e.key === 'Escape') {
+        if (state.tool === 'ruta' && (state.routePts || []).length) {
+          if (state.routePts.length >= 2) finalizeRoute();
+          else { clearRoutePreview(); state.routePts = []; canvas.requestRenderAll(); }
+          return;   // sigue en la herramienta ruta
+        }
+        backToSelect();
+      }
     });
     document.addEventListener('keyup', (e) => {
       if (e.code === 'Space') {
@@ -2034,7 +2206,7 @@ const SR = (() => {
     generateEvac, generateSan, clearAll,
     setFont, setTextSize, toggleBold,
     duplicateSelected, setColor, setStrokeW, setOpacity, commitProps,
-    bringFront, sendBack, setArrowKind, makeLegend,
+    bringFront, sendBack, setArrowKind, makeLegend, setRouteTool,
   };
 })();
 

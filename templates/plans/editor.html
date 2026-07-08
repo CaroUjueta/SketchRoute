@@ -206,25 +206,33 @@
         </div>
       </div>
 
-      <!-- 4 · Rutas automáticas -->
+      <!-- 4 · Rutas (dibujo manual — la generación automática está desactivada;
+           para reactivarla, restaurar aquí los botones SR.generateEvac/generateSan
+           y SR.setTool('origen-evac')) -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--blue"></i>4 · Rutas automáticas</span><span class="ed-chevron">▾</span>
+          <span><i class="ed-dot ed-dot--blue"></i>4 · Rutas</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
-          <p class="ed-hint">Evacuación: pon orígenes verdes. Sanitaria: usa las canecas. Todo va a la salida.</p>
-          <button class="ed-tool ed-tool--wide" onclick="SR.setTool('origen-evac',this)">
-            <span class="ed-marker ed-marker--evac"></span>
-            <span>Colocar origen de evacuación</span>
+          <p class="ed-hint">Elegí el tipo y dibujá: un clic por punto (Enter o doble clic termina), o trazá a mano alzada y se endereza solo.</p>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('evac', this)">
+            <span style="width:12px;height:12px;border-radius:50%;background:#16a34a;flex-shrink:0;"></span>
+            <span>Ruta de evacuación</span>
           </button>
-          <button class="ed-route-btn ed-route-btn--evac" onclick="SR.generateEvac()">
-            Generar ruta de evacuación
+          <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('ordinaria', this)">
+            <span style="width:12px;height:12px;border-radius:50%;background:#111827;flex-shrink:0;"></span>
+            <span>Ruta sanitaria — ordinaria</span>
           </button>
-          <button class="ed-route-btn ed-route-btn--san" onclick="SR.generateSan()">
-            Generar ruta sanitaria (canecas)
+          <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('reciclable', this)">
+            <span style="width:12px;height:12px;border-radius:50%;background:#9ca3af;flex-shrink:0;"></span>
+            <span>Ruta sanitaria — reciclable</span>
+          </button>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('biosani', this)">
+            <span style="width:12px;height:12px;border-radius:50%;background:#dc2626;flex-shrink:0;"></span>
+            <span>Ruta sanitaria — biosanitaria</span>
           </button>
           <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearAll()">
-            Limpiar rutas
+            Borrar todas las flechas
           </button>
           <button class="ed-tool ed-tool--wide" onclick="SR.makeLegend()" title="Cuadro de convenciones + datos del plano, según lo que haya en el dibujo">
             Generar leyenda y cartela
@@ -338,7 +346,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=18"></script>
+<script src="{% static 'js/canvas.js' %}?v=19"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
