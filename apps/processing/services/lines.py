@@ -785,7 +785,25 @@ def cut_walls_at_doors(walls_h, walls_v, door_segments, on_tol=20,
     def _mk(horizontal, pos, start, end):
         return [start, pos, end, pos] if horizontal else [pos, start, pos, end]
 
-    def _split(walls, horizontal):
+    def _junctions(perp, horizontal, wpos, a, b):
+        """Posiciones (a lo largo del eje de la pared) donde una pared
+        perpendicular se cruza con esta → uniones en T que NO deben romperse."""
+        js = []
+        for p in perp:
+            px1, py1, px2, py2 = p
+            if horizontal:
+                # pared en estudio es horizontal (y=wpos); perpendicular vertical
+                ppos = (px1 + px2) / 2.0            # x de la vertical
+                pa, pb = min(py1, py2), max(py1, py2)
+            else:
+                ppos = (py1 + py2) / 2.0            # y de la horizontal
+                pa, pb = min(px1, px2), max(px1, px2)
+            # la perpendicular toca la pared (su rango cubre wpos) y cae dentro
+            if pa - on_tol <= wpos <= pb + on_tol and a < ppos < b:
+                js.append(ppos)
+        return js
+
+    def _split(walls, horizontal, perp):
         out = []
         for w in walls:
             wx1, wy1, wx2, wy2 = w
@@ -795,6 +813,8 @@ def cut_walls_at_doors(walls_h, walls_v, door_segments, on_tol=20,
             else:
                 wpos = (wx1 + wx2) / 2.0
                 a, b = min(wy1, wy2), max(wy1, wy2)
+
+            jpts = _junctions(perp, horizontal, wpos, a, b)
 
             cuts = []
             for d in door_segments:
@@ -810,8 +830,18 @@ def cut_walls_at_doors(walls_h, walls_v, door_segments, on_tol=20,
                     da, db = min(dy1, dy2), max(dy1, dy2)
                 if abs(dpos - wpos) > on_tol:
                     continue  # la puerta no está sobre esta pared
+                dc = (da + db) / 2.0
                 lo = max(a, da - gap_pad)
                 hi = min(b, db + gap_pad)
+                # No dejar que el hueco cruce una unión en T: recortarlo a la
+                # unión más cercana a cada lado del centro de la puerta, para que
+                # el muro perpendicular siga tocando limpio (T cerrada).
+                lows = [j for j in jpts if j <= dc]
+                highs = [j for j in jpts if j >= dc]
+                if lows:
+                    lo = max(lo, max(lows))
+                if highs:
+                    hi = min(hi, min(highs))
                 if hi - lo > 4:
                     cuts.append((lo, hi))
 
@@ -829,7 +859,52 @@ def cut_walls_at_doors(walls_h, walls_v, door_segments, on_tol=20,
                 out.append(_mk(horizontal, wpos, pos, b))
         return out
 
-    return _split(walls_h, True), _split(walls_v, False)
+    return _split(walls_h, True, walls_v), _split(walls_v, False, walls_h)
+
+
+def clamp_doors_to_junctions(door_segments, walls_h, walls_v, on_tol=20,
+                             min_len=14):
+    """Acorta cada puerta para que no cruce una unión en T con una pared
+    perpendicular. Una puerta que se pasa de la esquina/cruce se ve fea (cruza
+    la línea del muro perpendicular); se recorta al lado de la unión donde está
+    su centro. Devuelve la lista de puertas recortadas."""
+    out = []
+    for d in door_segments:
+        dx1, dy1, dx2, dy2 = d
+        horizontal = abs(dx2 - dx1) >= abs(dy2 - dy1)
+        if horizontal:
+            pos = (dy1 + dy2) / 2.0
+            lo, hi = min(dx1, dx2), max(dx1, dx2)
+            perp = walls_v
+        else:
+            pos = (dx1 + dx2) / 2.0
+            lo, hi = min(dy1, dy2), max(dy1, dy2)
+            perp = walls_h
+        dc = (lo + hi) / 2.0
+        js = []
+        for p in perp:
+            px1, py1, px2, py2 = p
+            if horizontal:
+                ppos = (px1 + px2) / 2.0
+                pa, pb = min(py1, py2), max(py1, py2)
+            else:
+                ppos = (py1 + py2) / 2.0
+                pa, pb = min(px1, px2), max(px1, px2)
+            if pa - on_tol <= pos <= pb + on_tol and lo < ppos < hi:
+                js.append(ppos)
+        lows = [j for j in js if j <= dc]
+        highs = [j for j in js if j >= dc]
+        if lows:
+            lo = max(lo, max(lows))
+        if highs:
+            hi = min(hi, min(highs))
+        if hi - lo < min_len:
+            continue
+        if horizontal:
+            out.append([lo, pos, hi, pos])
+        else:
+            out.append([pos, lo, pos, hi])
+    return out
 
 
 def extend_free_ends_to_walls(segments, walls_h, walls_v, max_reach=80,

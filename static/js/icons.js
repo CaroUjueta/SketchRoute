@@ -1,29 +1,57 @@
 /* ============================================================
-   SketchRoute — Biblioteca de iconos (fuente única de verdad)
-   Estilo: señalética técnica plana (pictogramas sobrios). SVG 64×64.
+   SketchRoute — Biblioteca de iconos.
+   Los que tienen foto real se cargan como imágenes; el resto
+   usan SVG planos (pictogramas). 64×64 en el canvas.
    Se usa para: sidebar, objetos del canvas y export a PDF.
    ============================================================ */
 
+// Rutas de las imágenes reales para cada tipo de icono.
+const ICON_IMG = {
+  extintor:           '/static/img/fotos/extintor.jpeg',
+  botiquin:           '/static/img/fotos/botiquin.jpeg',
+  caneca_ordinaria:   '/static/img/fotos/caneca_ordinaria.jpeg',
+  caneca_reciclable:  '/static/img/fotos/caneca_reciclable.jpeg',
+  caneca_biosani:     '/static/img/fotos/caneca_biosani.jpeg',
+  caneca_corto:       '/static/img/fotos/caneca_corto.jpg',
+};
+
 const SR_ICONS = {
 
-  /* ─── SEGURIDAD / EVACUACIÓN (señales ISO) ───────────────── */
+  /* ─── FOTO REAL ──────────────────────────────────────────── */
+  // El valor 'img' indica que se carga desde ICON_IMG.
 
-  extintor: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect width="64" height="64" rx="2" fill="#b91c1c"/>
-    <g fill="#ffffff">
-      <rect x="26" y="23" width="13" height="28" rx="1"/>
-      <rect x="29" y="15" width="4" height="8"/>
-      <rect x="24" y="11" width="13" height="5" rx="1"/>
-      <path d="M37 13 h7 v3 h-4 v4 h-3 z"/>
-    </g>
-    <rect x="29" y="31" width="7" height="10" fill="#b91c1c"/>
+  extintor: 'img',
+  botiquin: 'img',
+  caneca_ordinaria: 'img',
+  caneca_reciclable: 'img',
+  caneca_biosani: 'img',
+  caneca_corto: 'img',
+
+  /* ─── FLECHAS MANUALES (iguales a las generadas, por color) ─────
+     Preview = línea + triángulo en el color de ruta. El objeto real del
+     canvas lo arma makeArrowShape() (ver ARROW_TYPES en canvas.js). */
+
+  flecha_evac:  `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#16a34a" stroke-width="6" stroke-linecap="round"/>
+    <polygon points="58,32 42,41 42,23" fill="#16a34a"/>
   </svg>`,
 
-  botiquin: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect width="64" height="64" rx="2" fill="#15803d"/>
-    <rect x="28" y="16" width="8" height="32" fill="#ffffff"/>
-    <rect x="16" y="28" width="32" height="8" fill="#ffffff"/>
+  flecha_negra: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#111827" stroke-width="6" stroke-linecap="round"/>
+    <polygon points="58,32 42,41 42,23" fill="#111827"/>
   </svg>`,
+
+  flecha_gris:  `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#9ca3af" stroke-width="6" stroke-linecap="round"/>
+    <polygon points="58,32 42,41 42,23" fill="#9ca3af"/>
+  </svg>`,
+
+  flecha_roja:  `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+    <polygon points="58,32 42,41 42,23" fill="#dc2626"/>
+  </svg>`,
+
+  /* ─── SVG PLANO (sin foto aún) ───────────────────────────── */
 
   punto_encuentro: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
     <rect width="64" height="64" rx="2" fill="#15803d"/>
@@ -50,54 +78,6 @@ const SR_ICONS = {
     <path d="M30 42 h11 M36 36 l6 6 l-6 6" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`,
 
-  /* ─── CANECAS (misma forma, color de código + símbolo) ───── */
-
-  caneca_ordinaria: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect x="15" y="15" width="34" height="6" rx="1.5" fill="#0b0f1a"/>
-    <rect x="27" y="11" width="10" height="4" rx="1" fill="#0b0f1a"/>
-    <path d="M18 21 H46 L43 55 H21 Z" fill="#1f2937"/>
-    <path d="M27 28 V49 M32 28 V49 M37 28 V49" stroke="#374151" stroke-width="2"/>
-  </svg>`,
-
-  caneca_reciclable: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect x="15" y="15" width="34" height="6" rx="1.5" fill="#d1d5db" stroke="#9ca3af" stroke-width="1"/>
-    <rect x="27" y="11" width="10" height="4" rx="1" fill="#d1d5db" stroke="#9ca3af" stroke-width="1"/>
-    <path d="M18 21 H46 L43 55 H21 Z" fill="#f8fafc" stroke="#9ca3af" stroke-width="1.4"/>
-    <g fill="none" stroke="#15803d" stroke-width="2.3" stroke-linecap="round">
-      <path d="M26 32 A8 8 0 0 1 39 34"/>
-      <path d="M40 44 A8 8 0 0 1 27 42"/>
-    </g>
-    <g fill="#15803d">
-      <path d="M39 29 l2 5 l-5 -1 z"/>
-      <path d="M27 47 l-2 -5 l5 1 z"/>
-    </g>
-  </svg>`,
-
-  caneca_biosani: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect x="15" y="15" width="34" height="6" rx="1.5" fill="#991b1b"/>
-    <rect x="27" y="11" width="10" height="4" rx="1" fill="#991b1b"/>
-    <path d="M18 21 H46 L43 55 H21 Z" fill="#dc2626"/>
-    <g fill="none" stroke="#ffffff" stroke-width="2.1">
-      <circle cx="32" cy="33" r="4"/>
-      <circle cx="27.5" cy="42" r="4"/>
-      <circle cx="36.5" cy="42" r="4"/>
-    </g>
-    <circle cx="32" cy="39" r="2" fill="#ffffff"/>
-  </svg>`,
-
-  caneca_corto: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <rect x="15" y="15" width="34" height="6" rx="1.5" fill="#991b1b"/>
-    <rect x="27" y="11" width="10" height="4" rx="1" fill="#991b1b"/>
-    <path d="M18 21 H46 L43 55 H21 Z" fill="#dc2626"/>
-    <g fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round">
-      <path d="M32 29 L41 45 H23 Z"/>
-    </g>
-    <line x1="32" y1="35" x2="32" y2="40" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/>
-    <circle cx="32" cy="43" r="1.4" fill="#ffffff"/>
-  </svg>`,
-
-  /* ─── ESTRUCTURA (planta técnica) ────────────────────────── */
-
   camilla: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
     <rect x="10" y="20" width="44" height="24" rx="4" fill="#eef2f7" stroke="#475467" stroke-width="2"/>
     <rect x="13" y="23" width="10" height="18" rx="2" fill="#cbd5e1"/>
@@ -122,12 +102,24 @@ const SR_ICONS = {
     <circle cx="28" cy="32" r="1.8" fill="#475467"/>
     <path d="M51 32 H40 M44 27 l-4 5 l4 5" stroke="#16a34a" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`,
+
+  norte: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="32" cy="34" r="22" fill="#ffffff" stroke="#475467" stroke-width="2.4"/>
+    <path d="M32 16 L38 40 L32 34 L26 40 Z" fill="#dc2626" stroke="#111827" stroke-width="1.4" stroke-linejoin="round"/>
+    <text x="32" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#111827">N</text>
+  </svg>`,
 };
 
-// Inyecta las vistas previas del sidebar (mismas SVG que van al canvas).
+// Inyecta las vistas previas del sidebar.
 function paintSidebarIcons() {
   document.querySelectorAll('.ed-icon-preview[data-icon]').forEach(el => {
     const key = el.getAttribute('data-icon');
-    if (SR_ICONS[key]) el.innerHTML = SR_ICONS[key];
+    const val = SR_ICONS[key];
+    if (!val) return;
+    if (val === 'img') {
+      el.innerHTML = `<img src="${ICON_IMG[key]}" alt="${key}" style="width:100%;height:100%;object-fit:contain;">`;
+    } else {
+      el.innerHTML = val;
+    }
   });
 }

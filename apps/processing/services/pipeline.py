@@ -368,11 +368,26 @@ class ProcessingPipeline:
             #    real (no la puerta encima de una pared continua) y que las
             #    rutas de evacuación crucen por la abertura.
             # Se hace tras detectar recintos (que necesitan los muros completos).
+            # Primero cerrar micro-gaps en las uniones en T (p.ej. el muro
+            # horizontal que queda a 7px del muro central) para que las uniones
+            # existan y el recorte de puertas/paredes las respete.
+            snapped = lines.close_gaps(
+                wall_segments_h + wall_segments_v, gap_tol=20,
+            )
+            wall_segments_h = [s for s in snapped
+                               if lines._is_horizontal(np.array(s))]
+            wall_segments_v = [s for s in snapped
+                               if not lines._is_horizontal(np.array(s))]
             for dtype in ('puerta', 'vano'):
                 if dtype not in all_segments:
                     continue
                 kept = lines.keep_doors_on_walls(
                     all_segments[dtype], wall_segments_h, wall_segments_v,
+                )
+                # acortar puertas que cruzan una unión en T (se ven feas y
+                # rompen la esquina del muro perpendicular)
+                kept = lines.clamp_doors_to_junctions(
+                    kept, wall_segments_h, wall_segments_v,
                 )
                 all_segments[dtype] = kept
                 st = elem_styles.get(dtype, {})

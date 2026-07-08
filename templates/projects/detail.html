@@ -23,8 +23,11 @@
         <ul class="plan-list">
             {% for plan in project.plans.all %}
                 <li>
-                    <a href="{% url 'plan_editor' pk=plan.pk %}">{{ plan.name }}</a>
-                    <span class="meta">{{ plan.updated_at|date:"d/m/Y H:i" }}</span>
+                    <div>
+                        <a href="{% url 'plan_editor' pk=plan.pk %}">{{ plan.name }}</a>
+                        <span class="meta">Editado: {{ plan.updated_at|date:"d/m/Y H:i" }}</span>
+                    </div>
+                    <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-secondary">Abrir editor →</a>
                 </li>
             {% endfor %}
         </ul>

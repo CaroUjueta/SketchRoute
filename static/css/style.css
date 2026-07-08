@@ -1,35 +1,44 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400..600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Paleta clara (Tailwind hardcodeado): azul primario + slate. */
 :root {
-  --bg:        #07091A;
-  --bg-1:      #0B0F24;
-  --bg-2:      #101626;
-  --surface:   #131D36;
-  --surface-2: #192644;
-  --border:    #1C2C4C;
-  --border-2:  #243D6A;
+  --primary:       #2563eb;   /* blue-600 */
+  --primary-dark:  #1d4ed8;   /* blue-700 */
+  --primary-light: #60a5fa;   /* blue-400 */
 
-  --text:      #DDE9F8;
-  --text-2:    #7B94BE;
-  --text-3:    #3D5580;
+  --bg:        #EEF2F8;
+  --bg-1:      #FFFFFF;
+  --bg-2:      #F8FAFC;
+  --surface:   #FFFFFF;
+  --surface-2: #F1F5F9;
+  --border:    #E2E8F0;
+  --border-2:  #CBD5E1;
 
-  --cyan:      #00CFFF;
-  --cyan-dim:  rgba(0,207,255,.1);
-  --cyan-glow: 0 0 28px rgba(0,207,255,.3);
+  --text:      #0f172a;
+  --text-2:    #475569;
+  --text-3:    #94a3b8;
 
-  --amber:     #F5A623;
-  --amber-dim: rgba(245,166,35,.1);
+  /* alias legado: todo lo que era "cyan" ahora es el azul primario */
+  --cyan:      #2563eb;
+  --cyan-dim:  #EEF2FF;
+  --cyan-glow: 0 0 0 3px rgba(37,99,235,.15);
 
-  --green:     #00DF96;
-  --green-dim: rgba(0,223,150,.1);
+  --amber:     #d97706;
+  --amber-dim: #fffbeb;
 
-  --red:       #FF4545;
-  --red-dim:   rgba(255,69,69,.1);
+  --green:     #16a34a;
+  --green-dim: #f0fdf4;
 
-  --font-d: 'Syne', sans-serif;
-  --font-b: 'DM Sans', sans-serif;
+  --red:       #dc2626;
+  --red-dim:   #fef2f2;
+
+  --shadow:    0 2px 8px rgba(0,0,0,.08);
+  --shadow-md: 0 6px 24px rgba(0,0,0,.13);
+
+  --font-d: 'Inter', sans-serif;
+  --font-b: 'Inter', sans-serif;
   --font-m: 'JetBrains Mono', monospace;
 
   --nav-h: 64px;
@@ -56,9 +65,8 @@ header {
   inset: 0 0 auto 0;
   z-index: 100;
   height: var(--nav-h);
-  background: rgba(7,9,26,.88);
-  backdrop-filter: blur(18px);
-  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #3b82f6 100%);
+  box-shadow: var(--shadow);
 }
 
 header nav {
@@ -75,7 +83,7 @@ header nav {
   font-family: var(--font-d);
   font-size: 1.3rem;
   font-weight: 800;
-  color: var(--text);
+  color: #ffffff;
   letter-spacing: -0.02em;
   display: flex;
   align-items: center;
@@ -86,9 +94,9 @@ header nav {
 .nav-dot {
   display: inline-block;
   width: 8px; height: 8px;
-  background: var(--cyan);
+  background: #ffffff;
   border-radius: 50%;
-  box-shadow: 0 0 12px var(--cyan);
+  box-shadow: 0 0 10px rgba(255,255,255,.8);
   flex-shrink: 0;
 }
 
@@ -101,13 +109,13 @@ header nav {
 .nav-links a {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--text-2);
+  color: rgba(255,255,255,.85);
   padding: 0.45rem 0.9rem;
   border-radius: var(--r);
   transition: color .2s, background .2s;
   text-decoration: none;
 }
-.nav-links a:hover { color: var(--text); background: var(--surface); }
+.nav-links a:hover { color: #ffffff; background: rgba(255,255,255,.14); }
 
 .nav-links form { display: inline; }
 .nav-links button {
@@ -119,10 +127,10 @@ header nav {
   cursor: pointer;
   transition: all .2s;
   background: transparent;
-  border: 1px solid var(--border-2);
-  color: var(--text-2);
+  border: 1px solid rgba(255,255,255,.4);
+  color: rgba(255,255,255,.9);
 }
-.nav-links button:hover { border-color: var(--cyan); color: var(--cyan); }
+.nav-links button:hover { border-color: #ffffff; color: #ffffff; background: rgba(255,255,255,.12); }
 
 .nav-cta {
   display: inline-flex;
@@ -130,16 +138,15 @@ header nav {
   font-size: 0.875rem;
   font-weight: 600 !important;
   padding: 0.45rem 1.1rem !important;
-  background: var(--cyan) !important;
-  color: var(--bg) !important;
+  background: #ffffff !important;
+  color: var(--primary) !important;
   border-radius: var(--r) !important;
   transition: all .2s var(--ease) !important;
 }
 .nav-cta:hover {
-  background: transparent !important;
-  color: var(--cyan) !important;
-  border: 1px solid var(--cyan);
-  box-shadow: var(--cyan-glow);
+  background: rgba(255,255,255,.9) !important;
+  color: var(--primary-dark) !important;
+  box-shadow: var(--shadow);
 }
 
 /* ── MAIN ────────────────────────────────────────────────── */
@@ -744,6 +751,9 @@ footer p {
 
 /* ── PROJECT LIST ────────────────────────────────────────── */
 
+.project-list, .project-detail { max-width: 1100px; margin: 0 auto; padding: 2.5rem 2rem; }
+.project-list h1 { margin-bottom: 1rem; }
+.project-list > .btn { margin-bottom: 1.25rem; }
 .project-list ul { list-style: none; }
 .project-list li {
   background: var(--surface);
@@ -817,9 +827,11 @@ footer p {
 
 .project-detail h1 { font-family: var(--font-d); font-size: 1.75rem; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 0.5rem; }
 .project-detail .description { color: var(--text-2); margin-bottom: 1rem; }
-.project-detail .actions { margin: 1rem 0; display: flex; gap: 0.5rem; }
+.project-detail .actions { margin: 1rem 0; display: flex; flex-direction: row; gap: 0.5rem; }
+.project-detail .actions .btn-danger { margin-left: auto; }  /* lo destructivo, lejos */
 .plan-list { list-style: none; margin-top: 1rem; }
-.plan-list li { background: var(--surface); border: 1px solid var(--border); padding: 1rem 1.25rem; margin-bottom: 0.5rem; border-radius: var(--r); transition: border-color .2s; }
+.plan-list li { background: var(--surface); border: 1px solid var(--border); padding: 1rem 1.25rem; margin-bottom: 0.5rem; border-radius: var(--r); transition: border-color .2s; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.plan-list li a:first-child { font-weight: 500; }
 .plan-list li:hover { border-color: var(--border-2); }
 
 /* New plan form */

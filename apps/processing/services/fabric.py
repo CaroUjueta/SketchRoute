@@ -99,7 +99,8 @@ def _make_door(x1, y1, x2, y2, color='#000000', stroke_width=3):
     s = max(abs(dx), abs(dy))
     if s < 5:
         return None
-    s *= 1.3
+    # La puerta se dibuja del tamaño de su segmento (el hueco real del muro);
+    # no se agranda para que no sobresalga de la pared ni cruce las uniones.
 
     sx = 1 if dx >= 0 else -1
     sy = 1 if dy >= 0 else -1
