@@ -196,6 +196,7 @@ const SR = (() => {
 
   function setTool(tool, btnEl) {
     if (state.tool === 'ruta' && tool !== 'ruta') { clearRoutePreview(); state.routePts = []; }
+    if (state.tool === 'wall' && tool !== 'wall') endWallChain();
     state.tool = tool;
     state.isDown = false;
     state.suppress = false;
@@ -241,10 +242,10 @@ const SR = (() => {
   /* ── Enganche de extremos (snap) ────────────────────────── */
 
   const SNAP_TYPES = new Set(['pared', 'mueble', 'puerta', 'vano']);
-  function collectEndpoints() {
+  function collectEndpoints(skipObj) {
     const pts = [];
     canvas.getObjects().forEach((o) => {
-      if (o === state.draft || !SNAP_TYPES.has(o.srType)) return;
+      if (o === state.draft || o === skipObj || !SNAP_TYPES.has(o.srType)) return;
       if (o.type === 'line') {
         // extremos REALES de la línea (el bounding rect incluye el grosor del
         // trazo, y ese medio-grosor de error dejaba las esquinas descuadradas)
@@ -282,8 +283,8 @@ const SR = (() => {
 
   // Proyecta el punto sobre la pared más cercana (≤14px): las puertas se
   // dibujan ENGANCHADAS a la pared, centradas en su eje.
-  function wallAt(p) {
-    let best = null, bd = 14;
+  function wallAt(p, thr) {
+    let best = null, bd = thr || 14;
     canvas.getObjects().forEach(o => {
       if (o.srType !== 'pared' || o.type !== 'line') return;
       const m = o.calcTransformMatrix();
@@ -300,12 +301,68 @@ const SR = (() => {
     return best;
   }
 
-  // Migra paredes/muebles guardados con cap redondo al cuadrado.
+  /* ── Extremos editables de paredes ──────────────────────── */
+
+  const lineEndAbs = (o) => {
+    const m = o.calcTransformMatrix();
+    const lp = o.calcLinePoints();
+    return [
+      fabric.util.transformPoint(new fabric.Point(lp.x1, lp.y1), m),
+      fabric.util.transformPoint(new fabric.Point(lp.x2, lp.y2), m),
+    ];
+  };
+
+  function makeEndControl(idx) {
+    return new fabric.Control({
+      cursorStyle: 'crosshair',
+      actionName: 'moveEnd',
+      positionHandler: (dim, finalMatrix, obj) => {
+        const ends = lineEndAbs(obj);
+        return fabric.util.transformPoint(
+          new fabric.Point(ends[idx].x, ends[idx].y),
+          obj.canvas.viewportTransform,
+        );
+      },
+      actionHandler: (eventData, transform, x, y) => {
+        const obj = transform.target;
+        const ends = lineEndAbs(obj);
+        const p = snapPoint({ x, y }, collectEndpoints(obj));
+        ends[idx] = p;
+        obj.set({
+          x1: ends[0].x, y1: ends[0].y, x2: ends[1].x, y2: ends[1].y,
+          originX: 'center', originY: 'center',
+          left: (ends[0].x + ends[1].x) / 2, top: (ends[0].y + ends[1].y) / 2,
+        });
+        obj.setCoords();
+        return true;
+      },
+      render: (ctx, left, top) => {
+        ctx.save();
+        ctx.fillStyle = '#2563eb'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(left, top, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.restore();
+      },
+    });
+  }
+  const LINE_CONTROLS = { e0: makeEndControl(0), e1: makeEndControl(1) };
+
+  function armWallControls(o) {
+    o.controls = LINE_CONTROLS;   // solo las 2 manijas de extremo
+    o.hasBorders = false;
+  }
+
+  // Normaliza paredes/muebles al cargar: cap cuadrado, anclaje al centro
+  // (necesario para editar extremos) y manijas de extremos.
   function fixupWallCaps() {
     canvas.getObjects().forEach(o => {
-      if ((o.srType === 'pared' || o.srType === 'mueble') && o.type === 'line' && o.strokeLineCap !== 'square') {
-        o.set('strokeLineCap', 'square');
+      if ((o.srType !== 'pared' && o.srType !== 'mueble') || o.type !== 'line') return;
+      if (o.strokeLineCap !== 'square') o.set('strokeLineCap', 'square');
+      if (o.originX !== 'center') {
+        const c = o.getCenterPoint();
+        o.set({ originX: 'center', originY: 'center', left: c.x, top: c.y });
+        o.setCoords();
       }
+      armWallControls(o);
     });
   }
 
@@ -377,8 +434,12 @@ const SR = (() => {
         });
       } else if (t === 'wall') {
         // cap cuadrado: dos paredes que se encuentran en un extremo forman
-        // esquina a inglete perfecta (el redondo dejaba "colitas" salidas)
-        state.draft = new fabric.Line([sp.x, sp.y, sp.x, sp.y], {
+        // esquina a inglete perfecta (el redondo dejaba "colitas" salidas).
+        // Si hay cadena activa, la pared arranca donde terminó la anterior.
+        const from = state.chain || sp;
+        state.start = from;
+        clearWallPreview();
+        state.draft = new fabric.Line([from.x, from.y, sp.x, sp.y], {
           stroke: '#1f2937', strokeWidth: 8, strokeLineCap: 'square',
           srType: 'pared', srCat: 'shape',
         });
@@ -401,6 +462,22 @@ const SR = (() => {
         vpt[4] += opt.e.clientX - state.panStart.x;
         vpt[5] += opt.e.clientY - state.panStart.y;
         state.panStart = { x: opt.e.clientX, y: opt.e.clientY };
+        canvas.requestRenderAll();
+        return;
+      }
+      // preview de pared encadenada (mouse suelto, esperando el próximo clic)
+      if (state.tool === 'wall' && state.chain && !state.isDown) {
+        const p0 = canvas.getPointer(opt.e);
+        let end = snapPoint(p0, collectEndpoints());
+        if (end === p0) end = orthoSnap(state.chain, p0);
+        clearWallPreview();
+        state.suppress = true;
+        state.wallPreview = new fabric.Line([state.chain.x, state.chain.y, end.x, end.y], {
+          stroke: '#94a3b8', strokeWidth: 3, strokeDashArray: [7, 6],
+          selectable: false, evented: false, srCat: 'temp',
+        });
+        canvas.add(state.wallPreview);
+        state.suppress = false;
         canvas.requestRenderAll();
         return;
       }
@@ -490,7 +567,17 @@ const SR = (() => {
       const tiny = (t === 'rect')
         ? (d.width < 6 && d.height < 6)
         : (Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 8);
-      if (tiny) { canvas.remove(d); pushHistory(); return; }
+      if (tiny) {
+        canvas.remove(d);
+        if (t === 'wall' && !state.chain) {
+          // primer clic de una cadena de paredes
+          state.chain = { x: d.x1, y: d.y1 };
+          setStatus('Pared encadenada: clic en el siguiente punto (Esc corta)');
+          return;
+        }
+        pushHistory();
+        return;
+      }
 
       if (t === 'wall' || t === 'furniture') {
         // Quirk de fabric.Line: la línea dibujada queda corrida strokeWidth/2
@@ -498,18 +585,37 @@ const SR = (() => {
         // reconstruye anclada a su centro geométrico → extremos exactos.
         state.suppress = true;
         canvas.remove(d);
-        canvas.add(new fabric.Line([d.x1, d.y1, d.x2, d.y2], {
+        const nl = new fabric.Line([d.x1, d.y1, d.x2, d.y2], {
           stroke: d.stroke, strokeWidth: d.strokeWidth, strokeLineCap: 'square',
           srType: d.srType, srCat: d.srCat,
           originX: 'center', originY: 'center',
           left: (d.x1 + d.x2) / 2, top: (d.y1 + d.y2) / 2,
-        }));
+        });
+        armWallControls(nl);
+        canvas.add(nl);
         state.suppress = false;
+        if (t === 'wall') {
+          state.chain = { x: d.x2, y: d.y2 };   // la siguiente continúa desde aquí
+          clearWallPreview();
+        }
       }
       pushHistory();
     });
 
     canvas.on('mouse:dblclick', () => { if (state.tool === 'ruta') finalizeRoute(); });
+
+    // Puertas esclavas: al moverlas se deslizan A LO LARGO de su pared;
+    // a más de 30px de cualquier pared quedan libres (para cambiarlas de pared).
+    canvas.on('object:moving', (opt) => {
+      const o = opt.target;
+      if (!o || (o.srType !== 'puerta' && o.srType !== 'vano')) return;
+      const g = gapRect(o);
+      const gc = { x: g.left + g.width / 2, y: g.top + g.height / 2 };
+      const w = wallAt(gc, 30);
+      if (!w) return;
+      o.set({ left: o.left + (w.q.x - gc.x), top: o.top + (w.q.y - gc.y) });
+      o.setCoords();
+    });
 
     // Zoom con la rueda, centrado en el cursor.
     canvas.on('mouse:wheel', (opt) => {
@@ -834,10 +940,15 @@ const SR = (() => {
     });
 
     canvas.on('after:render', () => {
-      if (!state.guides.length) return;
+      if (!state.guides.length) {
+        // borrar los píxeles del frame anterior aunque ya no haya guías
+        if (state.guidesDirty) { canvas.clearContext(canvas.contextTop); state.guidesDirty = false; }
+        return;
+      }
       const ctx = canvas.contextTop;
       const t = canvas.viewportTransform;
       canvas.clearContext(ctx);
+      state.guidesDirty = true;
       ctx.save();
       ctx.strokeStyle = '#ec4899';
       ctx.lineWidth = 1;
@@ -924,6 +1035,19 @@ const SR = (() => {
     state.routeKind = ROUTE_KINDS[kind] ? kind : 'evac';
     setTool('ruta', btnEl);
     setStatus('Ruta: clic por cada punto (Enter/doble clic termina) o dibujá a mano alzada');
+  }
+
+  function clearWallPreview() {
+    if (!state.wallPreview) return;
+    state.suppress = true;
+    canvas.remove(state.wallPreview);
+    state.suppress = false;
+    state.wallPreview = null;
+  }
+  function endWallChain() {
+    state.chain = null;
+    clearWallPreview();
+    canvas.requestRenderAll();
   }
 
   function clearRoutePreview() {
@@ -2021,7 +2145,7 @@ const SR = (() => {
     const m = 16;
     const cl = Math.max(0, frame.left - m), ct = Math.max(0, frame.top - m);
     const cw = Math.min(DOC.w - cl, frame.width + 2 * m), ch = Math.min(DOC.h - ct, frame.height + 2 * m);
-    const url = canvas.toDataURL({ format: 'png', multiplier: 2, left: cl, top: ct, width: cw, height: ch, backgroundColor: '#ffffff' });
+    const url = canvas.toDataURL({ format: 'png', multiplier: 3, left: cl, top: ct, width: cw, height: ch, backgroundColor: '#ffffff' });
 
     temps.forEach(o => canvas.remove(o));
     toHide.forEach(o => (o.visible = true));
@@ -2043,6 +2167,18 @@ const SR = (() => {
     if (canvas.getObjects().some(o => o.srType === 'leyenda')) {
       try { await buildLegend(); } catch (e) { console.error('leyenda:', e); }
     }
+    // leyenda y cartela siempre DENTRO de la hoja en el PDF
+    ['leyenda', 'cartela'].forEach(t => {
+      const o = canvas.getObjects().find(x => x.srType === t);
+      if (!o) return;
+      const r = o.getBoundingRect(true, true);
+      let dx = 0, dy = 0;
+      if (r.left < 8) dx = 8 - r.left;
+      if (r.top < 8) dy = 8 - r.top;
+      if (r.left + r.width > DOC.w - 8) dx = DOC.w - 8 - (r.left + r.width);
+      if (r.top + r.height > DOC.h - 8) dy = DOC.h - 8 - (r.top + r.height);
+      if (dx || dy) { o.set({ left: o.left + dx, top: o.top + dy }); o.setCoords(); }
+    });
 
     // esperar a que la fuente (Century Gothic / Jost) esté cargada antes de rasterizar,
     // si no el texto del PDF saldría con la fuente por defecto.
@@ -2074,7 +2210,10 @@ const SR = (() => {
     canvas.setDimensions({ width: prevW, height: prevH });
     canvas.setViewportTransform(prevVpt);
     canvas.requestRenderAll();
-    pdf.save((PLAN_NAME || 'plano') + '.pdf');
+    const modeTag = modes.map(m => m === 'evac' ? 'EVACUACION' : 'SANITARIA').join('_');
+    const nameTag = (PLAN_NAME || 'plano').trim().replace(/\s+/g, '-').toUpperCase();
+    const dateTag = new Date().toISOString().slice(0, 10);
+    pdf.save(`RUTA_${modeTag}_${nameTag}_${dateTag}.pdf`);
     setStatus('PDF exportado (' + modes.length + ' pág.)', 'ok');
   }
   const exportWith = doExport;
@@ -2123,6 +2262,7 @@ const SR = (() => {
           else { clearRoutePreview(); state.routePts = []; canvas.requestRenderAll(); }
           return;   // sigue en la herramienta ruta
         }
+        if (state.tool === 'wall' && state.chain) { endWallChain(); return; }  // corta la cadena
         backToSelect();
       }
     });
