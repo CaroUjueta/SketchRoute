@@ -1,6 +1,6 @@
 /* ============================================================
    SketchRoute — Editor
-   Cromo oscuro tipo CAD; el "papel" (canvas) es blanco.
+   Cromo claro; el "papel" (canvas) es blanco.
    Hereda los tokens de color de style.css (:root).
    ============================================================ */
 
@@ -35,7 +35,7 @@
   text-decoration: none;
   border-radius: var(--r);
 }
-.ed-back:hover { color: var(--cyan); text-decoration: none; }
+.ed-back:hover { color: var(--accent); text-decoration: none; }
 
 .ed-plan-name {
   font-family: var(--font-d);
@@ -49,9 +49,9 @@
   font-size: 0.62rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--cyan);
-  background: var(--cyan-dim);
-  border: 1px solid rgba(0,207,255,.22);
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(37,99,235,.22);
   border-radius: 100px;
   padding: 0.2rem 0.6rem;
 }
@@ -77,14 +77,14 @@
 .ed-tb-btn svg { flex-shrink: 0; }
 
 .ed-tb-btn--save   { color: var(--text); }
-.ed-tb-btn--save:hover { border-color: var(--cyan); color: var(--cyan); }
+.ed-tb-btn--save:hover { border-color: var(--accent); color: var(--accent); }
 .ed-tb-btn--export {
-  background: var(--cyan);
+  background: var(--accent);
   color: var(--bg);
-  border-color: var(--cyan);
+  border-color: var(--accent);
   font-weight: 600;
 }
-.ed-tb-btn--export:hover { background: transparent; color: var(--cyan); box-shadow: var(--cyan-glow); }
+.ed-tb-btn--export:hover { background: transparent; color: var(--accent); box-shadow: var(--accent-glow); }
 
 .ed-status {
   font-family: var(--font-m);
@@ -130,7 +130,7 @@
   cursor: pointer;
   user-select: none;
 }
-.ed-section-hd:hover { color: var(--cyan); }
+.ed-section-hd:hover { color: var(--accent); }
 .ed-section-hd > span:first-child { display: flex; align-items: center; gap: 0.45rem; }
 .ed-chevron { color: var(--text-3); font-size: 0.7rem; transition: transform .2s; }
 .ed-section.collapsed .ed-chevron { transform: rotate(-90deg); }
@@ -138,9 +138,9 @@
 .ed-section-bd { padding: 0 0.4rem 0.8rem; }
 
 .ed-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.ed-dot--green { background: #16a34a; box-shadow: 0 0 8px rgba(22,163,74,.6); }
+.ed-dot--green { background: var(--ruta-evac); box-shadow: 0 0 8px rgba(22,163,74,.6); }
 .ed-dot--dark  { background: #475467; }
-.ed-dot--blue  { background: var(--cyan); box-shadow: 0 0 8px rgba(0,207,255,.5); }
+.ed-dot--blue  { background: var(--accent); box-shadow: 0 0 8px rgba(37,99,235,.4); }
 
 .ed-hint { font-size: 0.7rem; color: var(--text-3); margin: 0 0.2rem 0.5rem; font-style: italic; }
 
@@ -166,8 +166,8 @@
   transition: all .15s;
 }
 .ed-tool:hover { color: var(--text); border-color: var(--border-2); background: var(--surface-2); }
-.ed-tool.active { color: var(--cyan); border-color: rgba(0,207,255,.45); background: var(--cyan-dim); }
-.ed-tool--danger:hover { color: var(--red); border-color: rgba(255,69,69,.4); background: var(--red-dim); }
+.ed-tool.active { color: var(--accent); border-color: rgba(37,99,235,.35); background: var(--accent-dim); }
+.ed-tool--danger:hover { color: var(--red); border-color: rgba(220,38,38,.35); background: var(--red-dim); }
 
 /* Iconos arrastrables */
 .ed-icons-grid {
@@ -187,7 +187,7 @@
   cursor: grab;
   transition: all .15s;
 }
-.ed-icon-item:hover { border-color: var(--cyan); background: var(--surface-2); transform: translateY(-1px); }
+.ed-icon-item:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-1px); }
 .ed-icon-item:active { cursor: grabbing; }
 .ed-icon-item span { font-size: 0.66rem; color: var(--text-2); text-align: center; line-height: 1.2; }
 .ed-icon-preview { width: 44px; height: 44px; pointer-events: none; }
@@ -218,8 +218,8 @@
   border: 2px solid var(--text);
   flex-shrink: 0;
 }
-.ed-marker--evac { background: #16a34a; }
-.ed-marker--san  { background: #dc2626; }
+.ed-marker--evac { background: var(--ruta-evac); }
+.ed-marker--san  { background: var(--ruta-biosani); }
 
 /* Botones de generar ruta */
 .ed-route-btn {
@@ -234,9 +234,9 @@
   border: 1px solid transparent;
   transition: all .15s;
 }
-.ed-route-btn--evac { background: rgba(22,163,74,.14); color: #4ade80; border-color: rgba(22,163,74,.35); }
+.ed-route-btn--evac { background: rgba(22,163,74,.14); color: #15803d; border-color: rgba(22,163,74,.35); }
 .ed-route-btn--evac:hover { background: #16a34a; color: #fff; }
-.ed-route-btn--san  { background: rgba(220,38,38,.12); color: #f87171; border-color: rgba(220,38,38,.35); }
+.ed-route-btn--san  { background: rgba(220,38,38,.12); color: #b91c1c; border-color: rgba(220,38,38,.35); }
 .ed-route-btn--san:hover { background: #dc2626; color: #fff; }
 .ed-route-btn--clear { background: var(--surface); color: var(--text-3); border-color: var(--border); margin-bottom: 0.3rem; }
 .ed-route-btn--clear:hover { color: var(--text); border-color: var(--border-2); }
@@ -270,7 +270,7 @@
 
 #propArrowKind { display: flex; gap: 4px; align-items: center; margin-left: 4px; }
 #propArrowKind[hidden] { display: none; }
-.ed-tb-btn.active { background: var(--cyan, #0ea5e9); color: #fff; }
+.ed-tb-btn.active { background: var(--accent); color: #fff; }
 
 /* ── BARRA DE FORMATO DE TEXTO ────────────────────────────── */
 
@@ -287,7 +287,7 @@
   background: var(--bg-1);
   border: 1px solid var(--border-2);
   border-radius: var(--r);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .5);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, .16);
 }
 .ed-text-bar[hidden] { display: none; }
 
@@ -303,7 +303,7 @@
   cursor: pointer;
   outline: none;
 }
-.ed-text-bar select:focus { border-color: var(--cyan); }
+.ed-text-bar select:focus { border-color: var(--accent); }
 #txtSize { width: 64px; }
 
 .ed-text-bold {
@@ -317,7 +317,7 @@
   transition: all .15s;
 }
 .ed-text-bold:hover { color: var(--text); border-color: var(--text-3); }
-.ed-text-bold.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+.ed-text-bold.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
 /* ── MODAL DE EXPORTACIÓN ─────────────────────────────────── */
 
@@ -328,7 +328,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(7, 9, 26, .72);
+  background: rgba(15, 23, 42, .45);
   backdrop-filter: blur(4px);
 }
 .ed-modal[hidden] { display: none; }
@@ -339,7 +339,7 @@
   border: 1px solid var(--border-2);
   border-radius: var(--r-lg);
   padding: 1.75rem;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, .18);
 }
 .ed-modal-box h3 {
   font-family: var(--font-d);
@@ -372,9 +372,9 @@
   cursor: pointer;
   transition: all .15s;
 }
-.ed-modal-opt--evac:hover { border-color: #16a34a; color: #4ade80; background: rgba(22,163,74,.12); }
-.ed-modal-opt--san:hover  { border-color: #dc2626; color: #f87171; background: rgba(220,38,38,.12); }
-.ed-modal-opt--both:hover { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+.ed-modal-opt--evac:hover { border-color: #16a34a; color: #15803d; background: rgba(22,163,74,.12); }
+.ed-modal-opt--san:hover  { border-color: #dc2626; color: #b91c1c; background: rgba(220,38,38,.12); }
+.ed-modal-opt--both:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
 .ed-modal-cancel {
   width: 100%;
@@ -416,3 +416,53 @@
 .ed-color-label b {
   color: var(--text);
 }
+
+/* ── Dots y botones con colores de ruta (tokens de style.css) ── */
+.ed-dot-route { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.ed-dot-route--evac       { background: var(--ruta-evac); }
+.ed-dot-route--ordinaria  { background: var(--ruta-ordinaria); }
+.ed-dot-route--reciclable { background: var(--ruta-reciclable); }
+.ed-dot-route--biosani    { background: var(--ruta-biosani); }
+
+/* Botones de reclasificar flecha (propBar) */
+.ed-kind-btn {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--border-2);
+  cursor: pointer;
+}
+.ed-kind-btn--evac       { background: var(--ruta-evac); }
+.ed-kind-btn--ordinaria  { background: var(--ruta-ordinaria); }
+.ed-kind-btn--reciclable { background: var(--ruta-reciclable); }
+.ed-kind-btn--biosani    { background: var(--ruta-biosani); }
+
+/* ── Aviso para pantallas pequeñas (el editor es de escritorio) ── */
+.ed-mobile-warn {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+@media (max-width: 900px) {
+  .ed-mobile-warn { display: flex; }
+}
+
+/* Inputs del propBar */
+#propColor {
+  width: 30px; height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+#propStroke, #propOpacity { width: 70px; }

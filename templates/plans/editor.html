@@ -4,7 +4,7 @@
 {% block title %}{{ plan.name }} — Editor — SketchRoute{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/editor.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/editor.css' %}?v=6">
 <!-- Respaldo de fuente: si la PC no tiene Century Gothic, se usa Jost (casi idéntica) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -216,19 +216,19 @@
         <div class="ed-section-bd">
           <p class="ed-hint">Elegí el tipo y dibujá: un clic por punto (Enter o doble clic termina), o trazá a mano alzada y se endereza solo.</p>
           <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('evac', this)">
-            <span style="width:12px;height:12px;border-radius:50%;background:#16a34a;flex-shrink:0;"></span>
+            <span class="ed-dot-route ed-dot-route--evac"></span>
             <span>Ruta de evacuación</span>
           </button>
           <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('ordinaria', this)">
-            <span style="width:12px;height:12px;border-radius:50%;background:#111827;flex-shrink:0;"></span>
+            <span class="ed-dot-route ed-dot-route--ordinaria"></span>
             <span>Ruta sanitaria — ordinaria</span>
           </button>
           <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('reciclable', this)">
-            <span style="width:12px;height:12px;border-radius:50%;background:#9ca3af;flex-shrink:0;"></span>
+            <span class="ed-dot-route ed-dot-route--reciclable"></span>
             <span>Ruta sanitaria — reciclable</span>
           </button>
           <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('biosani', this)">
-            <span style="width:12px;height:12px;border-radius:50%;background:#dc2626;flex-shrink:0;"></span>
+            <span class="ed-dot-route ed-dot-route--biosani"></span>
             <span>Ruta sanitaria — biosanitaria</span>
           </button>
           <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearAll()">
@@ -291,21 +291,20 @@
       <!-- Barra de propiedades (aparece al seleccionar formas/iconos/flechas) -->
       <div class="ed-text-bar" id="propBar" hidden>
         <input type="color" id="propColor" title="Color"
-               style="width:30px;height:30px;padding:2px;border:1px solid var(--border-2);border-radius:6px;background:var(--surface);cursor:pointer;"
                oninput="SR.setColor(this.value)" onchange="SR.commitProps()">
-        <input type="range" id="propStroke" min="1" max="12" step="1" title="Grosor" style="width:70px;"
+        <input type="range" id="propStroke" min="1" max="12" step="1" title="Grosor"
                oninput="SR.setStrokeW(this.value)" onchange="SR.commitProps()">
-        <input type="range" id="propOpacity" min="10" max="100" step="5" title="Opacidad" style="width:70px;"
+        <input type="range" id="propOpacity" min="10" max="100" step="5" title="Opacidad"
                oninput="SR.setOpacity(this.value)" onchange="SR.commitProps()">
         <button class="ed-text-bold" onclick="SR.bringFront()" title="Traer al frente">▲</button>
         <button class="ed-text-bold" onclick="SR.sendBack()" title="Enviar atrás">▼</button>
         <button class="ed-text-bold" onclick="SR.duplicateSelected()" title="Duplicar (Ctrl+D)">⧉</button>
         <button class="ed-text-bold" onclick="SR.deleteSelected()" title="Borrar (Supr)">✕</button>
         <span id="propArrowKind" hidden>
-          <button style="width:18px;height:18px;border-radius:50%;border:2px solid #fff;cursor:pointer;background:#16a34a" onclick="SR.setArrowKind('flecha_evac')" title="Ruta de evacuación"></button>
-          <button style="width:18px;height:18px;border-radius:50%;border:2px solid #fff;cursor:pointer;background:#111827" onclick="SR.setArrowKind('flecha_negra')" title="Sanitaria — ordinaria"></button>
-          <button style="width:18px;height:18px;border-radius:50%;border:2px solid #fff;cursor:pointer;background:#9ca3af" onclick="SR.setArrowKind('flecha_gris')" title="Sanitaria — reciclable"></button>
-          <button style="width:18px;height:18px;border-radius:50%;border:2px solid #fff;cursor:pointer;background:#dc2626" onclick="SR.setArrowKind('flecha_roja')" title="Sanitaria — biosanitaria"></button>
+          <button class="ed-kind-btn ed-kind-btn--evac" onclick="SR.setArrowKind('flecha_evac')" title="Ruta de evacuación"></button>
+          <button class="ed-kind-btn ed-kind-btn--ordinaria" onclick="SR.setArrowKind('flecha_negra')" title="Sanitaria — ordinaria"></button>
+          <button class="ed-kind-btn ed-kind-btn--reciclable" onclick="SR.setArrowKind('flecha_gris')" title="Sanitaria — reciclable"></button>
+          <button class="ed-kind-btn ed-kind-btn--biosani" onclick="SR.setArrowKind('flecha_roja')" title="Sanitaria — biosanitaria"></button>
         </span>
       </div>
 
@@ -319,6 +318,12 @@
     </div>
 
   </div><!-- /ed-body -->
+
+  <!-- Aviso en pantallas pequeñas: el editor es de escritorio -->
+  <div class="ed-mobile-warn">
+    <p><b>El editor necesita una pantalla grande.</b><br>
+    Desde el celular podés subir la foto del croquis; para editar el plano usá un computador.</p>
+  </div>
 
   <!-- ── MODAL: opciones de exportación ──────────────────────── -->
   <div class="ed-modal" id="exportModal" hidden>
