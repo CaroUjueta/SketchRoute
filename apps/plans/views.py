@@ -30,13 +30,29 @@ def editor_view(request, pk):
 @login_required
 @require_POST
 def save_canvas(request, pk):
-    """Persiste el JSON del canvas (Fabric.js). Llamado por fetch desde el editor."""
+    """Persiste el JSON del canvas (Fabric.js). Llamado por fetch desde el editor.
+
+    Control optimista de conflictos: el cliente manda `last_saved` (el
+    updated_at que conoce); si otro guardado ya avanzó ese timestamp,
+    respondemos 409 para que el editor avise en vez de pisar el trabajo."""
     plan = get_object_or_404(Plan, pk=pk, project__user=request.user)
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({'error': 'JSON inválido'}, status=400)
 
-    plan.canvas_data = body.get('canvas_data')
+    canvas_data = body.get('canvas_data')
+    if not isinstance(canvas_data, dict):
+        return JsonResponse({'error': 'canvas_data inválido'}, status=400)
+
+    last_saved = body.get('last_saved')
+    if last_saved and last_saved != plan.updated_at.isoformat():
+        return JsonResponse({'error': 'conflict'}, status=409)
+
+    plan.canvas_data = canvas_data
     plan.save(update_fields=['canvas_data', 'updated_at'])
-    return JsonResponse({'ok': True, 'saved_at': plan.updated_at.strftime('%H:%M:%S')})
+    return JsonResponse({
+        'ok': True,
+        'saved_at': plan.updated_at.strftime('%H:%M:%S'),
+        'updated_at': plan.updated_at.isoformat(),
+    })

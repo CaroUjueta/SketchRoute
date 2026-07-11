@@ -60,7 +60,7 @@ const SR = (() => {
   const state = {
     tool: 'select', zoom: 1,
     isDown: false, draft: null, start: null, snapPts: [],
-    history: [], redoStack: [], loadingHistory: false, suppress: false, dirty: false,
+    history: [], redoStack: [], loadingHistory: false, suppress: false, dirty: false, conflict: false,
     panning: false, panStart: null, spaceDown: false, nudged: false,
     gridSnap: false, guides: [],
   };
@@ -420,6 +420,7 @@ const SR = (() => {
       const p = canvas.getPointer(opt.e);
       if (t === 'text')        { addText(p.x, p.y); return; }
       if (t === 'origen-evac') { placeMarker(p.x, p.y); return; }
+      if (t === 'place')       { if (state.placeType) addIcon(state.placeType, p.x, p.y); return; }
       if (t === 'ruta') {
         // se decide en mouse:up si fue clic (vértice) o arrastre (mano alzada)
         state.rDrag = true; state.rMoved = false; state.freePts = [p];
@@ -713,12 +714,19 @@ const SR = (() => {
   }
 
   // Rectángulo del HUECO de una puerta/vano, aunque el bbox incluya el arco.
-  // La puerta nueva es un grupo cuyo hueco queda en el borde inferior (h) o
-  // derecho (v) del bbox porque la hoja siempre abre hacia arriba/izquierda.
-  // ponytail: asume puerta sin rotar; si se rota el grupo, cae al bbox completo.
+  // El hueco es el primer hijo del grupo (gapPath, marcado con srGapX); su
+  // bbox absoluto ya incluye la transformación del grupo, así que funciona
+  // también con la puerta rotada o escalada.
   function gapRect(o) {
     const r = o.getBoundingRect(true, true);
     if (o.srType === 'puerta' && o.type === 'group') {
+      const kids = o._objects || [];
+      const gap = kids.find(ch => ch.srGapX !== undefined) || kids[0];
+      if (gap && gap.getBoundingRect) {
+        try { return gap.getBoundingRect(true, true); } catch (e) { /* cae al fallback */ }
+      }
+      // fallback geométrico (puerta sin rotar): el hueco queda en el borde
+      // inferior (h) o derecho (v) porque la hoja abre hacia arriba/izquierda
       const horizontal = o.srDir ? o.srDir === 'h' : r.width >= r.height;
       if (Math.abs(o.angle || 0) > 1) return r;
       return horizontal
@@ -1066,6 +1074,13 @@ const SR = (() => {
     setStatus('Ruta: clic por cada punto (Enter/doble clic termina) o dibujá a mano alzada');
   }
 
+  // Colocar un icono con un clic (alternativa al drag & drop del sidebar).
+  function setPlaceTool(type, btnEl) {
+    state.placeType = type;
+    setTool('place', btnEl);
+    setStatus('Tocá el punto del plano donde va el elemento');
+  }
+
   function clearWallPreview() {
     if (!state.wallPreview) return;
     state.suppress = true;
@@ -1150,7 +1165,7 @@ const SR = (() => {
     if (pts.length < 2) { canvas.requestRenderAll(); return; }
     const spec = ROUTE_KINDS[state.routeKind];
     const ortho = toOrtho(pts);
-    const parts = makeRouteSafe(ortho, spec.color, spec.mode);
+    const parts = renderRoute(ortho, spec.color, spec.mode);
     if (!parts) return;
     const g = new fabric.Group(parts, { srType: 'ruta-' + spec.mode, srCat: 'ruta-manual' });
     state.suppress = true;
@@ -1585,23 +1600,6 @@ const SR = (() => {
     x >= r.left - pad && x <= r.left + r.width + pad &&
     y >= r.top - pad && y <= r.top + r.height + pad;
 
-  // Crea una punta de flecha (triángulo relleno) en (cx,cy) apuntando en dirección (dx,dy).
-  function arrowTip(cx, cy, dx, dy, color, modeKey) {
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
-    const px = -uy, py = ux;
-    const h = ARROW_SIZE;
-    const w = h * 0.45;
-    return new fabric.Polygon([
-      { x: cx, y: cy },
-      { x: cx - ux * h + px * w, y: cy - uy * h + py * w },
-      { x: cx - ux * h - px * w, y: cy - uy * h - py * w },
-    ], {
-      fill: color, stroke: color, strokeWidth: 1,
-      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-    });
-  }
-
   // Flecha manual como un solo path: misma geometría que la auto-generada, pero
   // sin grupo separado para que la punta quede centrada y rotada correctamente.
   function makeArrowShape(color, len) {
@@ -1670,82 +1668,7 @@ const SR = (() => {
     });
   }
 
-  // Ruta = línea sólida por cada segmento recto + punta de flecha al final de
-  // cada segmento.  Entre segmentos se deja CORNER_MARGIN de separación para
-  // que las puntas no queden pegadas al giro.
-  function makeRoute(points, color, modeKey, phase, placed, items, placedAll) {
-    if (points.length < 2) return null;
-
-    // Detectar cambios de dirección (horizontal ↔ vertical) en el path
-    const turns = [];
-    for (let i = 1; i < points.length - 1; i++) {
-      const a = points[i - 1], b = points[i], c = points[i + 1];
-      const dx1 = b.x - a.x, dy1 = b.y - a.y;
-      const dx2 = c.x - b.x, dy2 = c.y - b.y;
-      const h1 = Math.abs(dx1) >= Math.abs(dy1);
-      const h2 = Math.abs(dx2) >= Math.abs(dy2);
-      if (h1 !== h2) turns.push(i);
-    }
-
-    const M = CORNER_MARGIN;
-    const parts = [];
-
-    // Construir segmentos: cada tramo entre dos giros consecutivos
-    const boundaries = [0, ...turns, points.length - 1];
-
-    for (let s = 0; s < boundaries.length - 1; s++) {
-      const si = boundaries[s];
-      const ei = boundaries[s + 1];
-      if (si >= ei) continue;
-
-      const pStart = points[si];
-      const pEnd = points[ei];
-      const dx = pEnd.x - pStart.x;
-      const dy = pEnd.y - pStart.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 1) continue;
-      const ux = dx / len, uy = dy / len;
-
-      // El último segmento (que llega a la meta) no lleva margen y SIEMPRE se dibuja.
-      // Los demás llevan margen al final para separar la punta del giro.
-      const isLast = (s === boundaries.length - 2);
-      const endMargin = isLast ? 0 : M;
-      const lineStart = pStart;
-      const lineEnd = { x: pEnd.x - ux * endMargin, y: pEnd.y - uy * endMargin };
-      const remain = Math.hypot(lineEnd.x - lineStart.x, lineEnd.y - lineStart.y);
-
-      if (!isLast && remain < 12) continue;
-
-      // no dibujar sobre un icono; salvo el último tramo, que debe llegar a la salida
-      if (!isLast && items && items.some(r => inRect((lineStart.x + lineEnd.x) / 2, (lineStart.y + lineEnd.y) / 2, r, 4)))
-        continue;
-
-      // Punta siempre en el último segmento; en los demás solo si hay espacio.
-      const wantTip = isLast || remain > 20;
-      // Si lleva punta, la línea termina en la BASE del triángulo (no en la punta)
-      // para que el cap redondo no sobresalga de la cabeza.
-      const lineTo = wantTip
-        ? { x: lineEnd.x - ux * ARROW_SIZE * 0.9, y: lineEnd.y - uy * ARROW_SIZE * 0.9 }
-        : lineEnd;
-
-      // Línea del segmento
-      parts.push(new fabric.Line([lineStart.x, lineStart.y, lineTo.x, lineTo.y], {
-        stroke: color, strokeWidth: LINE_W, strokeLineCap: 'round',
-        srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-      }));
-
-      if (wantTip) {
-        // Usar la dirección del último tramo para que la punta apunte exactamente a la meta
-        const localDx = (isLast && ei - si >= 1) ? pEnd.x - points[ei - 1].x : dx;
-        const localDy = (isLast && ei - si >= 1) ? pEnd.y - points[ei - 1].y : dy;
-        parts.push(arrowTip(lineEnd.x, lineEnd.y, localDx, localDy, color, modeKey));
-      }
-    }
-
-    return parts.length ? parts : null;
-  }
-
-  function makeRouteSafe(points, color, modeKey, phase, placed, items, placedAll) {
+  function renderRoute(points, color, modeKey, phase, placed, items, placedAll) {
     if (points.length < 2) return null;
 
     const turns = [];
@@ -1948,7 +1871,7 @@ const SR = (() => {
       simple = connectEndpoint(simple, j.goalPt, grid);
       const pts = buildSafeRoutePoints(simple, laneOf[j.color] || 0, grid, doorCenters);
       // Mantener la ruta ortogonal y validada contra la grilla de obstaculos.
-      const arrows = makeRouteSafe(pts, j.color, modeKey, null, null, itemRects, null);
+      const arrows = renderRoute(pts, j.color, modeKey, null, null, itemRects, null);
       if (!arrows) return;
       arrows.forEach(a => canvas.add(a));
       if (arrows.length) drawn++;
@@ -2070,16 +1993,27 @@ const SR = (() => {
     try { return JSON.stringify(canvas.toJSON(PROPS)); }
     catch (e) { console.error('snapshot error:', e); return null; }
   }
+  // La serialización completa del canvas es costosa: los cambios en ráfaga
+  // (arrastres, cadenas de paredes) se agrupan en un solo snapshot.
+  let histTimer = null;
   function pushHistory(initial = false) {
     if (state.loadingHistory || state.suppress) return;
+    if (initial) { commitHistory(true); return; }
+    clearTimeout(histTimer);
+    histTimer = setTimeout(() => commitHistory(false), 120);
+  }
+  function commitHistory(initial) {
+    clearTimeout(histTimer); histTimer = null;
     const snap = snapshot();
     if (snap === null) return;
     if (state.history.length && state.history[state.history.length - 1] === snap) return;
     state.history.push(snap);
-    if (state.history.length > 60) state.history.shift();
+    if (state.history.length > 40) state.history.shift();
     state.redoStack = [];
-    if (!initial) { state.dirty = true; setStatus('Cambios sin guardar', 'warn'); scheduleAutoSave(); }
+    if (!initial) { state.dirty = true; setSaveState('dirty'); scheduleAutoSave(); }
   }
+  // Antes de undo/redo hay que materializar el snapshot pendiente.
+  function flushHistory() { if (histTimer) commitHistory(false); }
   function loadSnapshot(str) {
     state.loadingHistory = true;
     canvas.loadFromJSON(JSON.parse(str), () => {
@@ -2090,7 +2024,7 @@ const SR = (() => {
       state.loadingHistory = false;
     });
   }
-  function undo() { if (state.history.length <= 1) return; state.redoStack.push(state.history.pop()); loadSnapshot(state.history[state.history.length - 1]); }
+  function undo() { flushHistory(); if (state.history.length <= 1) return; state.redoStack.push(state.history.pop()); loadSnapshot(state.history[state.history.length - 1]); }
   function redo() { if (!state.redoStack.length) return; const s = state.redoStack.pop(); state.history.push(s); loadSnapshot(s); }
 
   /* ── Guardar ────────────────────────────────────────────── */
@@ -2101,23 +2035,47 @@ const SR = (() => {
     autoTimer = setTimeout(() => saveData(true), AUTOSAVE_MS);
   }
 
+  // updated_at que el editor conoce; si el servidor tiene otro, alguien más guardó.
+  // Se lee en el primer guardado (canvas.js carga antes de que exista PLAN_UPDATED).
+  let lastSaved = null;
+
   function saveData(silent) {
+    if (lastSaved === null && typeof PLAN_UPDATED !== 'undefined' && PLAN_UPDATED) lastSaved = PLAN_UPDATED;
     clearTimeout(autoTimer);
+    if (state.conflict) return;   // no pisar el trabajo de otra pestaña
     // no autoguardar a mitad de una multi-selección (coords relativas); reintenta luego
     const ao = canvas.getActiveObject();
     if (silent && ao && ao.type === 'activeSelection') { scheduleAutoSave(); return; }
-    if (!silent) { setStatus('Guardando…'); canvas.discardActiveObject().requestRenderAll(); }
+    if (!silent) canvas.discardActiveObject().requestRenderAll();
+    setSaveState('saving');
     fetch(SAVE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body: JSON.stringify({ canvas_data: canvas.toJSON(PROPS) }),
+      body: JSON.stringify({ canvas_data: canvas.toJSON(PROPS), last_saved: lastSaved }),
     })
-      .then(r => r.json())
-      .then(d => {
-        if (d.ok) { state.dirty = false; setStatus(silent ? 'Autoguardado ✓' : 'Guardado ' + (d.saved_at || ''), 'ok'); }
-        else setStatus('Error al guardar', 'err');
+      .then(r => {
+        if (r.status === 409) {
+          state.conflict = true;
+          setSaveState('conflict');
+          setStatus('Este plano fue modificado en otra pestaña — recargá la página antes de seguir', 'err');
+          return null;
+        }
+        return r.json();
       })
-      .catch(() => { setStatus(silent ? 'Sin conexión — reintentando…' : 'Error de conexión', 'err'); if (silent) scheduleAutoSave(); });
+      .then(d => {
+        if (!d) return;
+        if (d.ok) {
+          state.dirty = false;
+          if (d.updated_at) lastSaved = d.updated_at;
+          setSaveState('saved');
+          if (!silent) setStatus('Guardado ' + (d.saved_at || ''), 'ok');
+        } else { setSaveState('error'); if (!silent) setStatus('Error al guardar', 'err'); }
+      })
+      .catch(() => {
+        setSaveState('error');
+        setStatus(silent ? 'Sin conexión — reintentando…' : 'Error de conexión', 'err');
+        if (silent) scheduleAutoSave();
+      });
   }
   const save = () => saveData(false);
 
@@ -2369,6 +2327,31 @@ const SR = (() => {
     if (type === 'ok') statusTimer = setTimeout(() => { el.textContent = 'Listo'; el.className = 'ed-status'; }, 2800);
   }
 
+  // Chip persistente del estado de guardado (topbar). A diferencia de
+  // setStatus (mensajes efímeros), este siempre refleja el estado real.
+  const SAVE_STATES = {
+    saved:    { text: 'Guardado ✓',        cls: 'ok'   },
+    saving:   { text: 'Guardando…',        cls: ''     },
+    dirty:    { text: 'Sin guardar',       cls: 'warn' },
+    error:    { text: 'Error al guardar',  cls: 'err'  },
+    conflict: { text: 'Conflicto — recargá', cls: 'err' },
+  };
+  function setSaveState(kind) {
+    const el = document.getElementById('ed-save');
+    if (!el) return;
+    if (state.conflict) kind = 'conflict';   // el conflicto no se pisa con otros estados
+    const s = SAVE_STATES[kind] || SAVE_STATES.saved;
+    el.textContent = s.text;
+    el.className = 'ed-status ed-save' + (s.cls ? ' ed-status--' + s.cls : '');
+  }
+
+  // Aviso al cerrar/recargar con cambios sin guardar.
+  window.addEventListener('beforeunload', (e) => {
+    if (!state.dirty || state.conflict) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
   return {
     init, setTool, deleteSelected, undo, redo,
     zoomIn, zoomOut, zoomReset, toggleGrid, save,
@@ -2376,7 +2359,7 @@ const SR = (() => {
     generateEvac, generateSan, clearAll,
     setFont, setTextSize, toggleBold,
     duplicateSelected, setColor, setStrokeW, setOpacity, commitProps,
-    bringFront, sendBack, setArrowKind, makeLegend, setRouteTool,
+    bringFront, sendBack, setArrowKind, makeLegend, setRouteTool, setPlaceTool,
   };
 })();
 

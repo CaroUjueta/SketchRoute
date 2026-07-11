@@ -39,7 +39,8 @@ def detect_lines_hough(binary, min_length=30, max_gap=15):
     )
     if lines is None:
         return []
-    return lines[:, 0, :].tolist()
+    # OpenCV 4 devuelve (N,1,4); versiones nuevas (N,4). Normalizar.
+    return np.asarray(lines).reshape(-1, 4).tolist()
 
 
 def classify_lines(segments, angle_tolerance=5):

@@ -105,9 +105,15 @@ def run_browser(plan, sessionid):
     from playwright.sync_api import sync_playwright
     editor_url = ORIGIN + reverse('plan_editor', args=[plan.pk])
     with sync_playwright() as pw:
-        browser = pw.chromium.launch()
+        # En entornos con Chromium preinstalado (p. ej. CI) se usa ese binario.
+        exe = os.environ.get('SR_CHROMIUM') or (
+            '/opt/pw-browsers/chromium' if os.path.exists('/opt/pw-browsers/chromium') else None)
+        browser = pw.chromium.launch(executable_path=exe)
         ctx = browser.new_context(viewport={'width': 1600, 'height': 1000}, accept_downloads=True)
         ctx.add_cookies([{'name': 'sessionid', 'value': sessionid, 'url': ORIGIN}])
+        # Hermético: sin internet, solo el servidor local (fuentes/CDNs colgarían la carga)
+        ctx.route('**/*', lambda route: route.continue_()
+                  if route.request.url.startswith(ORIGIN) else route.abort())
         page = ctx.new_page()
         errors = []
         page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
@@ -122,7 +128,7 @@ def run_browser(plan, sessionid):
         page.wait_for_timeout(400)
         page.evaluate("SR.generateSan()")
         page.wait_for_timeout(400)
-        page.evaluate("SR.autoSignal()")
+        page.evaluate("SR.autoSignal && SR.autoSignal()")
         page.wait_for_timeout(800)
 
         status = page.eval_on_selector('#ed-status', 'el => el.textContent')

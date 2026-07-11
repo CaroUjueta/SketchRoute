@@ -9,8 +9,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Librerías vendorizadas: el editor funciona sin internet (fabric 5.3, jspdf 2.5.1) -->
+<script src="{% static 'js/vendor/fabric.min.js' %}"></script>
+<script src="{% static 'js/vendor/jspdf.umd.min.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -41,6 +42,7 @@
       <span id="ed-status" class="ed-status">Listo</span>
     </div>
     <div class="ed-topbar-right">
+      <span id="ed-save" class="ed-status ed-save ed-status--ok" title="Estado de guardado">Guardado ✓</span>
       <button class="ed-tb-btn ed-tb-btn--save" onclick="SR.save()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         Guardar
@@ -127,6 +129,28 @@
               <span>Borrar</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      <!-- Puntos clave: colocar con un clic lo esencial del flujo -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--green"></i>3 · Puntos clave</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Tocá el botón y luego el punto del plano.</p>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('salida_emergencia', this)">
+            <span class="ed-marker ed-marker--evac"></span>
+            <span>Salida de emergencia</span>
+          </button>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('entrada_salida', this)">
+            <span class="ed-marker ed-marker--evac"></span>
+            <span>Entrada / salida</span>
+          </button>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('punto_encuentro', this)">
+            <span class="ed-dot-route ed-dot-route--evac"></span>
+            <span>Punto de encuentro</span>
+          </button>
         </div>
       </div>
 
@@ -351,7 +375,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=24"></script>
+<script src="{% static 'js/canvas.js' %}?v=25"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
@@ -361,6 +385,7 @@
   const USER_NAME    = "{{ request.user.get_full_name|default:request.user.username|escapejs }}";
   const SAVE_URL  = "{% url 'plan_save' pk=plan.id %}";
   const CSRF      = "{{ csrf_token }}";
+  const PLAN_UPDATED = "{{ plan.updated_at.isoformat|escapejs }}";
   const PLAN_DATA = JSON.parse(document.getElementById('plan-data').textContent);
   SR.init(PLAN_DATA);
 </script>
