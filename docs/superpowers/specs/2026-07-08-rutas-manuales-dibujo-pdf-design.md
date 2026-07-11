@@ -2,6 +2,8 @@
 
 **Fecha:** 2026-07-08 · **Alcance:** editor de planos (`static/js/canvas.js`, `templates/plans/editor.html`, `static/css/editor.css`). Sin backend ni migraciones: todo vive en `Plan.canvas_data` (Fabric JSON). M4 (vectorización) queda para un spec aparte.
 
+> **Actualización (Paso 2, mejoras de editor/rutas):** la generación automática que este spec apagó en M1 se **reactivó**. El flujo actual es híbrido: se marca un "punto de partida" (`SR.setTool('origen-evac')`, visible y editable) y una salida, y botones **"Generar rutas de evacuación"** / **"Generar rutas sanitarias"** (sección "4 · Rutas automáticas" de `editor.html`) trazan las flechas solas con A* + string-pulling (suavizado, sin escaleras). Las rutas generadas ya **sí entran al PDF** y son seleccionables/borrables individualmente. La herramienta de ruta manual (`SR.setRouteTool`, ahora sección "5 · Rutas manuales") se conserva intacta como respaldo para retocar un tramo puntual. El resto de este documento describe el M1-M3 tal como se implementaron entonces; la sección "Apagar generación automática" de M1 quedó revertida.
+
 ## Contexto
 El usuario apaga la generación automática de rutas (A*) porque prefiere control manual, pero la única herramienta manual actual son flechas sueltas de 72px arrastradas del sidebar. Además dibujar paredes exige un drag por pared, los extremos no se pueden editar, las puertas colocadas se mueven libres (se salen de la pared) y el PDF tiene detalles de calidad.
 

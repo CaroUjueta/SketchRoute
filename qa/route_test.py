@@ -7,7 +7,8 @@ from apps.processing.services.pipeline import ProcessingPipeline
 GRID=10; CLEAR=20; DOCW=1320; DOCH=864
 OBST={'pared','mueble','zona'}
 
-res=ProcessingPipeline().process('media/croquis_cuadricula.jpeg')
+IMG = sys.argv[1] if len(sys.argv) > 1 else 'media/croquis_cuadricula.jpeg'
+res=ProcessingPipeline().process(IMG)
 objs=res['canvas_data']['objects']
 
 def bbox(o):

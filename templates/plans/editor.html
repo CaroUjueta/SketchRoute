@@ -230,12 +230,34 @@
         </div>
       </div>
 
-      <!-- 4 · Rutas (dibujo manual — la generación automática está desactivada;
-           para reactivarla, restaurar aquí los botones SR.generateEvac/generateSan
-           y SR.setTool('origen-evac')) -->
+      <!-- 4 · Rutas automáticas: colocás el punto de partida y las salidas,
+           las flechas se trazan solas hasta la salida más cercana. -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--blue"></i>4 · Rutas</span><span class="ed-chevron">▾</span>
+          <span><i class="ed-dot ed-dot--green"></i>4 · Rutas automáticas</span><span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-bd">
+          <p class="ed-hint">Marcá desde dónde sale cada ruta (o dejalo vacío para partir del centro de cada recinto/caneca) y una salida en <b>3 · Puntos clave</b>. Luego generá.</p>
+          <button class="ed-tool ed-tool--wide" onclick="SR.setTool('origen-evac', this)">
+            <span class="ed-marker ed-marker--evac"></span>
+            <span>Punto de partida (evacuación)</span>
+          </button>
+          <button class="ed-route-btn ed-route-btn--evac" onclick="SR.generateEvac()">
+            Generar rutas de evacuación
+          </button>
+          <button class="ed-route-btn ed-route-btn--san" onclick="SR.generateSan()">
+            Generar rutas sanitarias (desde las canecas)
+          </button>
+          <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearGenerated()">
+            Borrar rutas generadas
+          </button>
+        </div>
+      </div>
+
+      <!-- 5 · Rutas manuales (dibujo libre, de respaldo para retocar un tramo) -->
+      <div class="ed-section">
+        <div class="ed-section-hd" onclick="toggleSection(this)">
+          <span><i class="ed-dot ed-dot--blue"></i>5 · Rutas manuales</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
           <p class="ed-hint">Elegí el tipo y dibujá: un clic por punto (Enter o doble clic termina), o trazá a mano alzada y se endereza solo.</p>
@@ -264,10 +286,10 @@
         </div>
       </div>
 
-      <!-- 5 · Flechas manuales (retoque) -->
+      <!-- 6 · Flechas manuales (retoque) -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--green"></i>5 · Flechas (retoque)</span><span class="ed-chevron">▾</span>
+          <span><i class="ed-dot ed-dot--green"></i>6 · Flechas (retoque)</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
           <p class="ed-hint">Arrástrala y rótala para reemplazar una flecha mal generada.</p>
@@ -375,7 +397,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=25"></script>
+<script src="{% static 'js/canvas.js' %}?v=26"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";

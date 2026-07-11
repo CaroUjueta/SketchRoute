@@ -16,7 +16,6 @@ const CLEAR = 20;                  // holgura alrededor de obstáculos (px)
 const SNAP = 24;                   // radio de enganche entre extremos (px)
 const LINE_W = 5;                  // grosor del trazo de la ruta (px)
 const ARROW_SIZE = 16;             // apertura de la punta (px)
-const CORNER_MARGIN = 28;          // espacio que se deja antes de cada giro (px)
 const AUTOSAVE_MS = 2500;          // espera tras editar antes de autoguardar
 
 const OBSTACLES = new Set(['pared', 'mueble', 'zona']);
@@ -1294,6 +1293,29 @@ const SR = (() => {
 
   /* ════════════ GENERADOR DE RUTAS (A* + fusión) ═══════════ */
 
+  // Test punto-en-polígono (ray casting) para el bloqueo de obstáculos rotados.
+  function pointInPoly(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      const hit = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (hit) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Rectángulo rotado inflado por `pad` (aprox.: infla en espacio local antes
+  // de rotar, no es un Minkowski exacto pero es más que suficiente para bloqueo).
+  function rotatedRectPoly(o, pad) {
+    const w = o.getScaledWidth() + pad * 2, h = o.getScaledHeight() + pad * 2;
+    const c = o.getCenterPoint();
+    const rad = (o.angle || 0) * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const hw = w / 2, hh = h / 2;
+    return [{ x: -hw, y: -hh }, { x: hw, y: -hh }, { x: hw, y: hh }, { x: -hw, y: hh }]
+      .map(p => ({ x: c.x + p.x * cos - p.y * sin, y: c.y + p.x * sin + p.y * cos }));
+  }
+
   function buildGrid() {
     const cols = Math.ceil(DOC.w / GRID), rows = Math.ceil(DOC.h / GRID);
     const blocked = new Uint8Array(cols * rows);
@@ -1308,11 +1330,22 @@ const SR = (() => {
         for (let cx = x0; cx <= x1; cx++) fn(cy * cols + cx);
     };
 
-    // 1) bloquear paredes y muebles (con holgura + medio grosor)
+    // 1) bloquear paredes y muebles (con holgura + medio grosor).
+    //    Una 'zona' rectangular rotada infla mucho su AABB; para esas se prueba
+    //    punto-en-polígono contra el rectángulo real en vez de bloquear todo el
+    //    bounding box (las paredes/muebles son Line: su AABB rotado ya es ajustado).
     canvas.getObjects().forEach((o) => {
       if (!OBSTACLES.has(o.srType)) return;
       const pad = CLEAR + (o.strokeWidth || 0) / 2;
-      rectCells(o.getBoundingRect(true, true), pad, (i) => { blocked[i] = 1; });
+      const r = o.getBoundingRect(true, true);
+      const rotated = o.type === 'rect' && Math.abs(((o.angle || 0) % 90 + 90) % 90) > 1;
+      if (!rotated) { rectCells(r, pad, (i) => { blocked[i] = 1; }); return; }
+      const poly = rotatedRectPoly(o, pad);
+      rectCells(r, pad, (i) => {
+        const cx = i % cols, cy = (i / cols) | 0;
+        const c = cellCenter(cx, cy);
+        if (pointInPoly(c.x, c.y, poly)) blocked[i] = 1;
+      });
     });
 
     // 2) abrir el paso donde hay puertas o vanos (único cruce permitido).
@@ -1440,14 +1473,37 @@ const SR = (() => {
     return true;
   }
 
+  // Como routePointsClear pero acepta tramos en cualquier ángulo (no solo
+  // H/V) — necesario para validar un desfase de carril aplicado sobre un
+  // tramo diagonal sin forzarlo de vuelta a ortogonal.
+  function pathClear(pts, grid) {
+    if (!pts || pts.length < 2) return false;
+    for (let i = 1; i < pts.length; i++) {
+      if (!losClear(grid, pts[i - 1], pts[i])) return false;
+    }
+    return true;
+  }
+
+  // Devuelve { pts, collapsed }. Primero intenta el desfase de carril TAL
+  // CUAL (conserva diagonales si el tramo ya las traía del string-pulling);
+  // si no valida, cae a forzar ortogonal (comportamiento previo); si tampoco
+  // valida, reintenta con un desfase menor antes de resignarse a 0 —así dos
+  // rutas que comparten pasillo angosto no vuelven a quedar 100% pegadas.
+  // `collapsed` avisa al renderer que dibuje con halo para distinguirlas.
   function buildSafeRoutePoints(basePts, lane, grid, doorCenters) {
     const base = densify(basePts, 22);
-    if (lane) {
-      const shifted = offsetPath(base, lane, grid, doorCenters);
-      const ortho = orthogonalizePath(shifted, grid);
-      if (routePointsClear(ortho, grid)) return ortho;
+    if (!lane) return { pts: base, collapsed: false };
+    for (const factor of [1, 0.6, 0.3]) {
+      const shifted = offsetPath(base, lane * factor, grid, doorCenters);
+      if (pathClear(shifted, grid)) return { pts: shifted, collapsed: factor < 0.99 };
+      // `shifted` viene densificado (un punto cada ~22px): ortogonalizar eso tal
+      // cual produciría un codo por cada micro-tramo (mini-escalera). Se reduce
+      // primero con Douglas-Peucker para que quede un codo limpio por giro real.
+      const reduced = rdp(shifted, 3);
+      const ortho = orthogonalizePath(reduced, grid);
+      if (routePointsClear(ortho, grid)) return { pts: ortho, collapsed: factor < 0.99 };
     }
-    return base;
+    return { pts: base, collapsed: true };
   }
 
   // Inserta puntos intermedios para poder variar el desfase a lo largo del trazo.
@@ -1596,9 +1652,57 @@ const SR = (() => {
     return out.map(c => cellCenter(c.cx, c.cy));
   }
 
-  const inRect = (x, y, r, pad) =>
-    x >= r.left - pad && x <= r.left + r.width + pad &&
-    y >= r.top - pad && y <= r.top + r.height + pad;
+  // Línea de visión entre dos puntos (en px): libre si ninguna celda muestreada
+  // a lo largo del segmento está bloqueada. A diferencia de axisSegmentClear,
+  // funciona con segmentos en cualquier ángulo (no solo H/V).
+  function losClear(grid, a, b) {
+    const { cols, rows, blocked } = grid;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(dist / (GRID / 2)));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = Math.floor((a.x + dx * t) / GRID);
+      const cy = Math.floor((a.y + dy * t) / GRID);
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
+      if (blocked[cy * cols + cx]) return false;
+    }
+    return true;
+  }
+
+  // String-pulling: desde cada punto, salta al más lejano con línea de visión
+  // directa. Convierte la "escalera" de celdas del A* en tramos más largos y
+  // rectos, con diagonales donde el espacio lo permite (en pasillos angostos
+  // no encuentra atajos y el resultado queda igual de ortogonal que antes).
+  function smoothPath(pts, grid) {
+    if (!grid || pts.length <= 2) return pts;
+    const out = [pts[0]];
+    let i = 0;
+    while (i < pts.length - 1) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !losClear(grid, pts[i], pts[j])) j--;
+      out.push(pts[j]);
+      i = j;
+    }
+    return out;
+  }
+
+  // Recorta el arranque de la ruta `dist` px (para que la flecha nazca un poco
+  // separada del marcador/icono de origen, en vez de salir de su centro exacto).
+  function trimPathStart(pts, dist) {
+    if (pts.length < 2 || dist <= 0) return pts;
+    let remain = dist;
+    const out = pts.slice();
+    while (out.length > 1 && remain > 0) {
+      const a = out[0], b = out[1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      if (segLen <= remain) { remain -= segLen; out.shift(); continue; }
+      const t = remain / segLen;
+      out[0] = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      remain = 0;
+    }
+    return out;
+  }
 
   // Flecha manual como un solo path: misma geometría que la auto-generada, pero
   // sin grupo separado para que la punta quede centrada y rotada correctamente.
@@ -1668,68 +1772,112 @@ const SR = (() => {
     });
   }
 
-  function renderRoute(points, color, modeKey, phase, placed, items, placedAll) {
-    if (points.length < 2) return null;
+  const ROUTE_CORNER_R = 12;     // radio de redondeo en cada giro (px)
+  const CHEVRON_SPACING = 120;   // separación entre marcas de dirección (px)
 
-    const turns = [];
-    for (let i = 1; i < points.length - 1; i++) {
-      const a = points[i - 1], b = points[i], c = points[i + 1];
-      const dx1 = b.x - a.x, dy1 = b.y - a.y;
-      const dx2 = c.x - b.x, dy2 = c.y - b.y;
-      const h1 = Math.abs(dx1) >= Math.abs(dy1);
-      const h2 = Math.abs(dx2) >= Math.abs(dy2);
-      if (h1 !== h2) turns.push(i);
+  // Construye el `d` de un solo Path continuo con esquinas redondeadas (L + Q
+  // en cada giro), recortando el tramo final para dejar sitio a la punta.
+  function roundedPathD(points, tipLen) {
+    const pts = points;
+    let d = `M ${pts[0].x} ${pts[0].y} `;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+      const d1 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const d2 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const r = Math.min(ROUTE_CORNER_R, d1 / 2, d2 / 2);
+      if (r < 1 || d1 < 0.5) { d += `L ${p1.x} ${p1.y} `; continue; }
+      const u1x = (p1.x - p0.x) / d1, u1y = (p1.y - p0.y) / d1;
+      const u2x = (p2.x - p1.x) / (d2 || 1), u2y = (p2.y - p1.y) / (d2 || 1);
+      const a = { x: p1.x - u1x * r, y: p1.y - u1y * r };
+      const b = { x: p1.x + u2x * r, y: p1.y + u2y * r };
+      d += `L ${a.x} ${a.y} Q ${p1.x} ${p1.y} ${b.x} ${b.y} `;
     }
+    const last = pts[pts.length - 1];
+    const prev = pts[pts.length - 2] || last;
+    const dx = last.x - prev.x, dy = last.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const lineTo = { x: last.x - ux * tipLen, y: last.y - uy * tipLen };
+    d += `L ${lineTo.x} ${lineTo.y}`;
+    return { d, tipDir: { x: ux, y: uy }, tipAt: last };
+  }
+
+  // Marca de dirección (chevron) sutil a lo largo de la ruta, reforzando el
+  // sentido en tramos largos sin recargar la flecha con puntas repetidas.
+  function makeChevron(cx, cy, ux, uy, color, modeKey) {
+    const px = -uy, py = ux;
+    const s = 6;
+    const p1 = { x: cx - ux * s + px * s * 0.7, y: cy - uy * s + py * s * 0.7 };
+    const p2 = { x: cx + ux * s * 0.5, y: cy + uy * s * 0.5 };
+    const p3 = { x: cx - ux * s - px * s * 0.7, y: cy - uy * s - py * s * 0.7 };
+    return new fabric.Path(`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y}`, {
+      stroke: color, strokeWidth: 2, opacity: 0.4, fill: 'transparent',
+      strokeLineCap: 'round', strokeLineJoin: 'round',
+      selectable: false, evented: false,
+      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+    });
+  }
+
+  function makeChevrons(points, color, modeKey) {
+    const marks = [];
+    let acc = CHEVRON_SPACING * 0.6;   // primer chevron un poco antes del punto de partida
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      if (segLen < 1) continue;
+      const ux = (b.x - a.x) / segLen, uy = (b.y - a.y) / segLen;
+      let d = CHEVRON_SPACING - acc;
+      while (d < segLen - 8) {
+        const t = d / segLen;
+        marks.push(makeChevron(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, ux, uy, color, modeKey));
+        d += CHEVRON_SPACING;
+      }
+      acc = (acc + segLen) % CHEVRON_SPACING;
+    }
+    return marks;
+  }
+
+  // Ruta = un solo trazo continuo con esquinas redondeadas + una única punta
+  // de flecha al final + chevrons de refuerzo direccional. `opts.halo` agrega
+  // un trazo blanco de fondo para distinguir rutas que quedaron superpuestas.
+  function renderRoute(points, color, modeKey, opts = {}) {
+    if (points.length < 2) return null;
+    const tipLen = ARROW_SIZE * 0.9;
+    const { d, tipDir, tipAt } = roundedPathD(points, tipLen);
 
     const parts = [];
-    const boundaries = [0, ...turns, points.length - 1];
-    for (let s = 0; s < boundaries.length - 1; s++) {
-      const si = boundaries[s];
-      const ei = boundaries[s + 1];
-      if (si >= ei) continue;
-
-      const pStart = points[si];
-      const pEnd = points[ei];
-      const dx = pEnd.x - pStart.x;
-      const dy = pEnd.y - pStart.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 1) continue;
-
-      const ux = dx / len, uy = dy / len;
-      const isLast = s === boundaries.length - 2;
-      const endMargin = isLast ? 0 : CORNER_MARGIN;
-      const lineStart = pStart;
-      const lineEnd = { x: pEnd.x - ux * endMargin, y: pEnd.y - uy * endMargin };
-      const remain = Math.hypot(lineEnd.x - lineStart.x, lineEnd.y - lineStart.y);
-      if (!isLast && remain < 12) continue;
-      if (!isLast && items && items.some(r => inRect((lineStart.x + lineEnd.x) / 2, (lineStart.y + lineEnd.y) / 2, r, 4))) continue;
-
-      const wantTip = isLast || remain > 20;
-      let path = `M ${lineStart.x} ${lineStart.y} L ${lineEnd.x} ${lineEnd.y}`;
-      if (wantTip) {
-        const localDx = (isLast && ei - si >= 1) ? pEnd.x - points[ei - 1].x : dx;
-        const localDy = (isLast && ei - si >= 1) ? pEnd.y - points[ei - 1].y : dy;
-        const localLen = Math.hypot(localDx, localDy) || 1;
-        const ax = localDx / localLen, ay = localDy / localLen;
-        const px = -ay, py = ax;
-        const h = ARROW_SIZE, w = h * 0.55;
-        const lx = lineEnd.x - ax * h + px * w;
-        const ly = lineEnd.y - ay * h + py * w;
-        const rx = lineEnd.x - ax * h - px * w;
-        const ry = lineEnd.y - ay * h - py * w;
-        path += ` M ${lx} ${ly} L ${lineEnd.x} ${lineEnd.y} L ${rx} ${ry}`;
-      }
-
-      parts.push(new fabric.Path(path, {
-        stroke: color, strokeWidth: LINE_W, fill: 'transparent',
-        strokeLineCap: 'round', strokeLineJoin: 'round',
-        strokeUniform: true,
-        selectable: false, evented: false,
+    if (opts.halo) {
+      parts.push(new fabric.Path(d, {
+        stroke: '#ffffff', strokeWidth: LINE_W + 4, fill: 'transparent',
+        strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+        opacity: 0.85, selectable: false, evented: false,
         srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
       }));
     }
 
-    return parts.length ? parts : null;
+    const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
+    parts.push(new fabric.Path(d, {
+      stroke: color, strokeWidth: lineWidth, fill: 'transparent',
+      strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+    }));
+
+    // Punta de flecha única, al final del trazo.
+    const h = ARROW_SIZE, w = h * 0.55;
+    const px = -tipDir.y, py = tipDir.x;
+    const lx = tipAt.x - tipDir.x * h + px * w, ly = tipAt.y - tipDir.y * h + py * w;
+    const rx = tipAt.x - tipDir.x * h - px * w, ry = tipAt.y - tipDir.y * h - py * w;
+    parts.push(new fabric.Path(`M ${lx} ${ly} L ${tipAt.x} ${tipAt.y} L ${rx} ${ry}`, {
+      stroke: color, strokeWidth: lineWidth, fill: 'transparent',
+      strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+    }));
+
+    if (opts.chevrons !== false && points.length > 2) {
+      parts.push(...makeChevrons(points, color, modeKey));
+    }
+
+    return parts;
   }
 
   function clearRoutes(modeKey) {
@@ -1849,9 +1997,6 @@ const SR = (() => {
       laneOf[col] = Math.max(-LANE_CAP, Math.min(LANE_CAP, off));
     });
 
-    // recuadros de iconos: las flechas no se dibujan encima de ellos
-    const itemRects = all.filter(o => o.srCat === 'icon').map(o => o.getBoundingRect(true, true));
-
     const usedColor = new Map();     // celda → color que la ocupa (fusión / evitar cruces)
     let drawn = 0;
     prepared.forEach(j => {
@@ -1867,11 +2012,14 @@ const SR = (() => {
       if (cells.length < 2) return;
 
       cells.forEach(c => usedColor.set(c.cy * cols + c.cx, j.color));
-      let simple = simplify(cells);
+      // string-pulling sobre las celdas del A* → menos escalera, diagonales
+      // donde hay espacio libre; luego se conecta al punto real de la meta.
+      let simple = smoothPath(simplify(cells), grid);
       simple = connectEndpoint(simple, j.goalPt, grid);
-      const pts = buildSafeRoutePoints(simple, laneOf[j.color] || 0, grid, doorCenters);
-      // Mantener la ruta ortogonal y validada contra la grilla de obstaculos.
-      const arrows = renderRoute(pts, j.color, modeKey, null, null, itemRects, null);
+      const { pts, collapsed } = buildSafeRoutePoints(simple, laneOf[j.color] || 0, grid, doorCenters);
+      // la flecha nace un poco separada del marcador/icono de origen, no en su centro exacto
+      const trimmed = trimPathStart(pts, 16);
+      const arrows = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
       if (!arrows) return;
       arrows.forEach(a => canvas.add(a));
       if (arrows.length) drawn++;
@@ -1908,7 +2056,7 @@ const SR = (() => {
     return doorCenter(best);
   }
 
-  // Sin generación automática, "limpiar" borra TODAS las flechas (auto legacy + manuales).
+  // "Borrar todas las flechas": generadas + manuales.
   const clearAll = () => {
     state.suppress = true;
     canvas.getObjects()
@@ -1920,6 +2068,19 @@ const SR = (() => {
     canvas.requestRenderAll();
     pushHistory();
     setStatus('Todas las flechas eliminadas');
+  };
+
+  // Solo las generadas automáticamente (evac + sanitaria); las manuales quedan.
+  const clearGenerated = () => {
+    state.suppress = true;
+    clearRoutes('evac');
+    clearRoutes('san');
+    clearWarnings();
+    state.suppress = false;
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+    pushHistory();
+    setStatus('Rutas generadas eliminadas');
   };
 
   /* ── Selección / borrado ────────────────────────────────── */
@@ -2110,8 +2271,7 @@ const SR = (() => {
     if (title) title.set({ text: titleFor(mode), left: DOC.w / 2 });
 
     const toHide = canvas.getObjects().filter((o) => {
-      if (o.srHidden) return true;                              // puntitos verdes
-      if (o.srCat === 'ruta-auto') return true;                 // flechas auto legacy: nunca al PDF
+      if (o.srHidden) return true;                              // puntitos verdes / avisos
       if (o.srType === 'ruta-evac' && mode !== 'evac') return true;
       if (o.srType === 'ruta-san'  && mode !== 'san')  return true;
       return false;
@@ -2356,7 +2516,7 @@ const SR = (() => {
     init, setTool, deleteSelected, undo, redo,
     zoomIn, zoomOut, zoomReset, toggleGrid, save,
     exportPDF, doExport, closeExport,
-    generateEvac, generateSan, clearAll,
+    generateEvac, generateSan, clearAll, clearGenerated,
     setFont, setTextSize, toggleBold,
     duplicateSelected, setColor, setStrokeW, setOpacity, commitProps,
     bringFront, sendBack, setArrowKind, makeLegend, setRouteTool, setPlaceTool,
