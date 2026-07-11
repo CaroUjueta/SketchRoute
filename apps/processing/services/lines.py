@@ -15,7 +15,9 @@ import numpy as np
 import cv2
 
 
-def skeletonize(binary):
+def _skeletonize_erode_dilate(binary):
+    """Adelgazado casero (erode/dilate iterativo). Lento en imágenes grandes
+    pero sin dependencias — se usa si cv2.ximgproc no está disponible."""
     skel = np.zeros(binary.shape, dtype=np.uint8)
     temp = binary.copy()
     kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
@@ -26,6 +28,17 @@ def skeletonize(binary):
         skel = cv2.bitwise_or(skel, subset)
         temp = eroded
     return skel
+
+
+def skeletonize(binary):
+    """Adelgaza el trazo a 1px. Usa cv2.ximgproc.thinning (opencv-contrib,
+    vectorizado en C++) si está disponible; si no, cae al método casero."""
+    if hasattr(cv2, 'ximgproc'):
+        try:
+            return cv2.ximgproc.thinning(binary)
+        except Exception:
+            pass
+    return _skeletonize_erode_dilate(binary)
 
 
 def detect_lines_hough(binary, min_length=30, max_gap=15):

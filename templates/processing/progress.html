@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}Procesando croquis — {{ plan.name }} — SketchRoute{% endblock %}
+{% block content %}
+<div class="progress-page">
+
+  <div class="progress-card" id="pgWorking">
+    <div class="progress-spinner" aria-hidden="true"></div>
+    <h1>Analizando tu croquis…</h1>
+    <p id="pgWorkingMsg">Detectando paredes, puertas y muebles por color. Esto toma unos segundos.</p>
+  </div>
+
+  <div class="progress-card" id="pgDone" hidden>
+    <h1>Vectorización completada</h1>
+    <p id="pgCounts"></p>
+    <img id="pgOverlay" class="progress-overlay" alt="Vista previa de lo detectado">
+    <div class="progress-actions">
+      <a id="pgEditorLink" href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-primary">Abrir en el editor</a>
+      <a id="pgReprocessLink" href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-secondary">Reprocesar</a>
+    </div>
+  </div>
+
+  <div class="progress-card" id="pgFailed" hidden>
+    <h1>No se pudo vectorizar</h1>
+    <p id="pgError" class="progress-error"></p>
+    <div class="progress-actions">
+      <a href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-primary">Reintentar</a>
+      <a href="{% url 'upload_image' plan_pk=plan.pk %}" class="btn btn-secondary">Subir otra foto</a>
+      <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn">Ir al editor igual</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const STATUS_URL = "{% url 'processing_status' plan_pk=plan.pk %}";
+  const working = document.getElementById('pgWorking');
+  const done = document.getElementById('pgDone');
+  const failed = document.getElementById('pgFailed');
+
+  function poll() {
+    fetch(STATUS_URL).then(r => r.json()).then(d => {
+      if (d.status === 'completed') {
+        working.hidden = true; failed.hidden = true; done.hidden = false;
+        const c = d.counts || {};
+        document.getElementById('pgCounts').textContent =
+          `${c.paredes || 0} paredes · ${c.puertas || 0} puertas · ${c.muebles || 0} muebles · ${c.recintos || 0} recintos detectados.`;
+        const img = document.getElementById('pgOverlay');
+        if (d.overlay_url) { img.src = d.overlay_url; img.hidden = false; } else { img.hidden = true; }
+        return;
+      }
+      if (d.status === 'failed') {
+        working.hidden = true; done.hidden = true; failed.hidden = false;
+        document.getElementById('pgError').textContent = d.error || 'Error desconocido.';
+        return;
+      }
+      setTimeout(poll, 1500);
+    }).catch(() => setTimeout(poll, 2500));
+  }
+  poll();
+})();
+</script>
+{% endblock %}

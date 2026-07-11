@@ -290,6 +290,31 @@ def drawing_legend():
     ]
 
 
+def _page_mask_by_border_floodfill(gray, h, w):
+    """Fallback cuando Otsu no aísla una hoja clara y grande (fondo también
+    claro, sombra fuerte desparejando el brillo...). Asume que el FONDO de
+    la foto es lo que toca sus 4 esquinas y crece por similitud de brillo
+    (flood-fill); la hoja es el complemento. Devuelve None si tampoco esto
+    cubre una porción creíble de la imagen (mejor no restringir a ciegas
+    que recortar la hoja real)."""
+    ff = gray.copy()
+    ffmask = np.zeros((h + 2, w + 2), np.uint8)
+    for sx, sy in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+        cv2.floodFill(ff, ffmask, (sx, sy), 255, loDiff=18, upDiff=18)
+    bg = (ffmask[1:-1, 1:-1] > 0).astype(np.uint8) * 255
+    page_candidate = cv2.bitwise_not(bg)
+    if cv2.countNonZero(page_candidate) < 0.25 * h * w:
+        return None
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(page_candidate, connectivity=8)
+    if n <= 1:
+        return None
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    out = np.zeros((h, w), dtype=np.uint8)
+    out[labels == idx] = 255
+    erode_k = max(5, int(min(h, w) * 0.012)) | 1
+    return cv2.erode(out, np.ones((erode_k, erode_k), np.uint8))
+
+
 def detect_page_mask(bgr_image):
     """Aísla la hoja de papel del fondo (escritorio, sombras, dedos).
 
@@ -311,14 +336,15 @@ def detect_page_mask(bgr_image):
     bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
 
     n, labels, stats, _ = cv2.connectedComponentsWithStats(bright, connectivity=8)
-    if n <= 1:
-        return None
-    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    page_area = stats[idx, cv2.CC_STAT_AREA]
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) if n > 1 else -1
+    page_area = stats[idx, cv2.CC_STAT_AREA] if idx > 0 else 0
 
-    # la hoja debe ocupar buena parte de la imagen; si no, no confiamos
-    if page_area < 0.25 * h * w:
-        return None
+    # la hoja debe ocupar buena parte de la imagen; si no, Otsu no sirvió
+    # (fondo claro, sombra fuerte...) — probar flood-fill desde las esquinas
+    # asumiendo que el FONDO es lo que toca los 4 bordes de la foto.
+    if idx < 0 or page_area < 0.25 * h * w:
+        fallback = _page_mask_by_border_floodfill(gray, h, w)
+        return fallback
 
     mask = np.zeros((h, w), dtype=np.uint8)
     mask[labels == idx] = 255
@@ -337,7 +363,7 @@ def detect_page_mask(bgr_image):
     return filled
 
 
-def _detect_walls(gray, hsv, page, colored):
+def _detect_walls(gray, hsv, page, colored, radius_factor=1.0):
     """Detecta trazos de pared (lápiz negro/gris) sobre papel cuadriculado.
 
     El reto: la cuadrícula azul es tan fina como el lápiz, así que un umbral
@@ -351,7 +377,10 @@ def _detect_walls(gray, hsv, page, colored):
     3. Filtro de grosor por distance transform: conserva solo trazos cuyo
        núcleo supera un radio mínimo (descarta la cuadrícula fina).
     4. Restringir al interior de la hoja.
-    """
+
+    `radius_factor` ajusta la sensibilidad: <1 detecta trazos más tenues
+    (arriesga colar la cuadrícula), >1 es más estricto (arriesga perder
+    lápiz claro)."""
     h, w = gray.shape[:2]
     scale = min(h, w)
 
@@ -366,7 +395,7 @@ def _detect_walls(gray, hsv, page, colored):
 
     # filtro de grosor: la cuadrícula (~2px) tiene radio ~1; el lápiz ~2+
     dist = cv2.distanceTransform(ink, cv2.DIST_L2, 3)
-    radius_thr = max(1.5, scale * 0.00125)  # ~1.5 px en una foto de ~1200px
+    radius_thr = max(1.0, scale * 0.00125 * radius_factor)  # ~1.5 px en una foto de ~1200px
     core = (dist >= radius_thr).astype(np.uint8) * 255
     # reconstruir el trazo completo a partir del núcleo grueso
     seed_k = max(7, int(scale * 0.0075)) | 1
@@ -401,7 +430,48 @@ def _keep_large_components(binary, min_abs=480):
     return out
 
 
-def segment_by_color(bgr_image):
+def _channel_dominance_fallback(bgr_image, gray, page, already_classified):
+    """Clasifica por canal BGR dominante (en vez de matiz HSV) la tinta que
+    el umbral de color no cubrió. Rescata esferos desaturados o de un tono
+    que cae fuera de los rangos fijos de COLOR_MAP, sin tocar lo que el
+    inRange ya clasificó bien."""
+    h, w = gray.shape[:2]
+    scale = min(h, w)
+    block = max(31, int(scale * 0.05)) | 1
+    ink = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, block, 8,
+    )
+    if page is not None:
+        ink = cv2.bitwise_and(ink, page)
+    ink = cv2.bitwise_and(ink, cv2.bitwise_not(already_classified))
+
+    b, g, r = cv2.split(bgr_image.astype(np.int16))
+    maxc = np.maximum(np.maximum(b, g), r)
+    minc = np.minimum(np.minimum(b, g), r)
+    # descartar tinta casi neutra (gris/negro = pared, no color)
+    colorish = ((maxc - minc) > 18).astype(np.uint8) * 255
+    ink = cv2.bitwise_and(ink, colorish)
+
+    dom = np.argmax(np.stack([b, g, r], axis=-1), axis=-1)  # 0=B azul,1=G verde,2=R rojo
+    out = {}
+    for elem_type, channel_idx in (('puerta', 0), ('vano', 1), ('mueble', 2)):
+        m = ((dom == channel_idx).astype(np.uint8) * 255)
+        out[elem_type] = cv2.bitwise_and(m, ink)
+    return out
+
+
+# Sensibilidad: cuánto tolerar tinta tenue/desaturada a costa de más ruido.
+# 'radius': factor del grosor mínimo de pared (más chico = más tolerante).
+# 'sat_min': saturación HSV mínima para puerta/vano/mueble (más chico = más tolerante).
+SENSITIVITY_PRESETS = {
+    'alta':  {'radius': 0.7, 'sat_min': 10},
+    'media': {'radius': 1.0, 'sat_min': 20},
+    'baja':  {'radius': 1.4, 'sat_min': 32},
+}
+
+
+def segment_by_color(bgr_image, sensitivity='media'):
     """Segmenta la imagen por rangos de color HSV.
 
     Cada píxel se clasifica como pared, puerta, mueble o fondo
@@ -410,7 +480,10 @@ def segment_by_color(bgr_image):
 
     Toda la detección se restringe al interior de la hoja de papel
     (ver detect_page_mask), de modo que el fondo de la foto nunca se
-    confunde con elementos del plano."""
+    confunde con elementos del plano.
+
+    `sensitivity`: 'alta' | 'media' (default) | 'baja' — ver SENSITIVITY_PRESETS."""
+    prefs = SENSITIVITY_PRESETS.get(sensitivity, SENSITIVITY_PRESETS['media'])
     hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
     page = detect_page_mask(bgr_image)
@@ -425,6 +498,7 @@ def segment_by_color(bgr_image):
             continue
         combined = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
         for low, high in cfg['hsv_ranges']:
+            low = (low[0], prefs['sat_min'], low[2])
             combined = cv2.bitwise_or(
                 combined, cv2.inRange(hsv, np.array(low), np.array(high)),
             )
@@ -436,11 +510,27 @@ def segment_by_color(bgr_image):
         color_masks[elem_type] = combined
         colored_union = cv2.bitwise_or(colored_union, combined)
 
+    # ── 1b. Rescate por dominancia de canal ──────────────────────
+    # Tinta de baja saturación (esferos pálidos) o tonos fuera de los rangos
+    # HSV fijos no pasa el inRange y desaparece en silencio. Para lo que
+    # quedó SIN clasificar, se prueba una segunda vía: si es tinta (más
+    # oscura que el papel local) y tiene algo de color (no es gris/negro,
+    # eso es pared), el canal BGR dominante indica la familia de color.
+    fallback = _channel_dominance_fallback(bgr_image, gray, page, colored_union)
+    for elem_type, fb in fallback.items():
+        fb = cv2.bitwise_and(fb, cv2.bitwise_not(color_masks[elem_type]))
+        if cv2.countNonZero(fb) < 20:
+            continue
+        merged = cv2.bitwise_or(color_masks[elem_type], fb)
+        merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, kernel, iterations=1)
+        color_masks[elem_type] = denoise(merged)
+        colored_union = cv2.bitwise_or(colored_union, fb)
+
     # dilatar el color para que su borde no se cuele en las paredes
     colored_dil = cv2.dilate(colored_union, np.ones((9, 9), np.uint8))
 
     # ── 2. Paredes (lápiz negro/gris) con filtro de grosor ──
-    wall_binary = _detect_walls(gray, hsv, page, colored_dil)
+    wall_binary = _detect_walls(gray, hsv, page, colored_dil, radius_factor=prefs['radius'])
     wall_binary = cv2.morphologyEx(wall_binary, cv2.MORPH_CLOSE, kernel, iterations=1)
     wall_binary = denoise(wall_binary)
 

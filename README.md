@@ -49,7 +49,7 @@ Todo el procesamiento de imagen vive en **`apps/processing/services/`** y lo orq
 
 1. **Perspectiva** (`correct_perspective`): endereza la hoja solo si el resultado es confiable (conservador, no destruye la imagen).
 2. **Orientación de salida** (`_orient_exit_right`): rota el plano en múltiplos de 90° para que **la salida principal quede a la derecha**. La salida = la puerta con mayor `área × (1 + exterioridad)` — la más grande **y** más pegada al perímetro (la única forma de salir a la calle).
-3. **Segmentación por color** (`segment_by_color`): separa negro/azul/verde/rojo en HSV. Las paredes a lápiz se detectan con **umbral adaptativo + transformada de distancia** (filtro por grosor que descarta la cuadrícula azul impresa).
+3. **Segmentación por color** (`segment_by_color`): separa negro/azul/verde/rojo en HSV, con un **rescate por dominancia de canal** para tinta desaturada o de un tono fuera de rango que el HSV solo no detecta. Las paredes a lápiz se detectan con **umbral adaptativo + transformada de distancia** (filtro por grosor que descarta la cuadrícula azul impresa). La sensibilidad (Alta/Media/Baja, elegible al subir la foto) ajusta ambos umbrales. La hoja se aísla con `detect_page_mask` (Otsu) y, si el fondo también es claro, con un **flood-fill desde los bordes** como respaldo.
 4. **Detección de líneas** (`lines.py`): Hough probabilístico sobre las máscaras esqueletizadas, luego:
    - fusión de segmentos colineales, extensión a intersecciones y recorte de colgajos en esquinas;
    - **cierre del contorno exterior como rectángulo** (completa paredes demasiado tenues para detectarse);
@@ -72,18 +72,22 @@ El editor (`/plans/<id>/editor/`) corre **100% en el navegador** sobre **Fabric.
 
 1. El plano vectorizado se carga automáticamente (o empiezas en blanco y dibujas).
 2. **Dibuja / corrige:** pared (gruesa, bloquea), mueble (delgada, bloquea), puerta (arco) o vano (abertura) que abren el paso. Los extremos se enganchan (snap) a líneas cercanas.
-3. **Coloca elementos** del panel: extintor, botiquín, punto de encuentro, salida, camilla, baño, entrada/salida y 4 canecas (ordinaria, reciclable, biosanitaria, cortopunzantes).
-4. **Genera rutas automáticamente:**
-   - **Evacuación:** cada recinto traza una flecha **verde** hasta la salida (sin colocar puntos de origen visibles).
+3. **Coloca elementos** del panel (sección "3 · Puntos clave" y los iconos de evacuación/sanitaria/estructura): extintor, botiquín, punto de encuentro, salida, camilla, baño, entrada/salida y 4 canecas (ordinaria, reciclable, biosanitaria, cortopunzantes).
+4. **Genera rutas automáticamente** (sección "4 · Rutas automáticas"): marcá opcionalmente un **punto de partida** por herramienta dedicada (si no lo hacés, cada ruta sale del centro del recinto/caneca) y una salida, y tocá **Generar**:
+   - **Evacuación:** cada recinto (u origen marcado) traza una flecha **verde** hasta la salida.
    - **Sanitaria:** cada caneca traza una flecha **de su color** hasta la salida.
-5. **Exporta a PDF** oficio horizontal.
+   - Las rutas generadas son seleccionables, movibles y borrables; "Borrar rutas generadas" limpia solo las automáticas.
+5. **Rutas manuales** (sección "5 · Rutas manuales") quedan como respaldo para dibujar o retocar un tramo a mano (clics o mano alzada).
+6. **Exporta a PDF** oficio horizontal — incluye tanto las rutas generadas como las manuales.
 
 ### Cómo se calculan las rutas (en el cliente)
 
 - El lienzo se rasteriza en una **grilla** (`GRID = 10 px`); paredes y muebles marcan celdas bloqueadas con holgura (`CLEAR = 20 px`), y las puertas/vanos **liberan** el paso por su abertura.
-- **A\*** con movimientos en 4 direcciones → rutas en ángulos de 90° que solo cruzan por puertas/vanos.
+- **A\*** con movimientos en 4 direcciones → rutas base en ángulos de 90° que solo cruzan por puertas/vanos.
+- **String-pulling** (línea de visión) sobre la ruta del A\* colapsa la "escalera" de celdas en tramos largos, con diagonales donde hay espacio libre; en pasillos angostos el resultado queda ortogonal, como antes.
 - El destino de cada ruta es el **centro del hueco** de la puerta de salida (`srGapX/srGapY`).
-- **Fusión:** rutas del mismo color al mismo destino comparten tronco. **Carriles:** rutas de distinto color que comparten pasillo corren paralelas, sin encimarse.
+- **Fusión:** rutas del mismo color al mismo destino comparten tronco. **Carriles:** rutas de distinto color que comparten pasillo corren paralelas, sin encimarse (con reintentos de desfase si el pasillo es angosto).
+- Cada ruta se dibuja como un único trazo continuo con **esquinas redondeadas**, **una sola punta de flecha** al final y marcas de dirección sutiles a lo largo del recorrido.
 
 > La señalización automática (extintores por cobertura / señales NTC) está prevista en el roadmap (FASE 6) pero **no está activa** en el editor actual. Los iconos sí se pueden colocar a mano desde el panel.
 
@@ -167,6 +171,10 @@ ProcessingJob        → plan (1:1), status (pending/processing/completed/failed
 ```
 
 > Los modelos `EvacuationRoute` y `Signal` existen pero **no se usan**: el ruteo y la señalización ocurren en el cliente y se guardan dentro de `Plan.canvas_data`.
+
+### Subida de foto: procesamiento en segundo plano
+
+Subir una foto lanza el pipeline en un **hilo aparte** (sin bloquear el request ni depender de Celery) y redirige a una pantalla de **progreso** (`/processing/progress/<plan_id>/`) que hace polling al estado cada 1.5s. Al terminar, muestra los conteos (paredes/puertas/muebles/recintos) y un **overlay** con lo detectado antes de entrar al editor; si falla, ofrece reintentar, subir otra foto o entrar igual al editor. `ProcessingJob.vector_data` guarda la sensibilidad usada, los conteos y el `debug` del pipeline (antes se descartaba). "Reprocesar" reutiliza la última sensibilidad elegida.
 
 ---
 

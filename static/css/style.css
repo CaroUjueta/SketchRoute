@@ -934,7 +934,41 @@ footer p {
   border-radius: var(--r);
   margin-bottom: 1rem;
 }
+.up-preview[hidden] {
+  display: none;
+}
 
 .up-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .up-actions .btn { justify-content: center; }
 #upSubmit:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── PROGRESO DE VECTORIZACIÓN ───────────────────────────── */
+
+.progress-page { max-width: 640px; margin: 3rem auto; padding: 0 2rem; }
+.progress-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 2.5rem; text-align: center;
+}
+.progress-card h1 { font-family: var(--font-d); font-size: 1.3rem; font-weight: 800; margin-bottom: 0.6rem; }
+.progress-card p { color: var(--text-2); font-size: 0.9rem; }
+.progress-spinner {
+  width: 40px; height: 40px; margin: 0 auto 1.25rem;
+  border: 3px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: progress-spin 0.8s linear infinite;
+}
+@keyframes progress-spin { to { transform: rotate(360deg); } }
+.progress-overlay {
+  display: block; width: 100%; max-height: 360px; object-fit: contain;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--r);
+  margin: 1.25rem 0;
+}
+.progress-overlay[hidden] { display: none; }
+.progress-error { color: var(--red); }
+.progress-actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
+
+.up-sensitivity-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-2); margin: 0.9rem 0 0.35rem; }
+.up-sensitivity {
+  width: 100%; padding: 0.6rem 0.75rem;
+  background: var(--bg-2); border: 1px solid var(--border-2); border-radius: var(--r);
+  color: var(--text); font-family: var(--font-b); font-size: 0.88rem;
+}

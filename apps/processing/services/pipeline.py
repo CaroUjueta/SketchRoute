@@ -28,6 +28,7 @@ class ProcessingPipeline:
 
     def __init__(self, config=None):
         self.config = {
+            'sensitivity': 'media',  # 'alta' | 'media' | 'baja' — ver preprocessing.SENSITIVITY_PRESETS
             'target_w': 1320,
             'target_h': 864,
             'hough_min_length': 20,
@@ -67,7 +68,7 @@ class ProcessingPipeline:
 
             # ── Etapa 2: Segmentación por color ───────────────
             logger.info('Segmentando por color...')
-            masks = preprocessing.segment_by_color(image)
+            masks = preprocessing.segment_by_color(image, sensitivity=self.config['sensitivity'])
             masks = preprocessing.resize_mask_to_canvas(
                 masks, self.config['target_w'], self.config['target_h'],
             )
@@ -451,7 +452,7 @@ class ProcessingPipeline:
         secundario, un plano vertical suele quedar horizontal y llenar mejor
         la página. Devuelve (imagen_rotada, grados_rotados)."""
         try:
-            masks = preprocessing.segment_by_color(image)
+            masks = preprocessing.segment_by_color(image, sensitivity=self.config['sensitivity'])
         except Exception:
             return image, 0
 

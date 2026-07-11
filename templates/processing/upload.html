@@ -26,6 +26,14 @@
                    onchange="upPreview(this)">
         </label>
         <img id="upPreviewImg" class="up-preview" alt="Vista previa del croquis" hidden>
+
+        <label class="up-sensitivity-label" for="upSensitivity">Sensibilidad de detección</label>
+        <select name="sensitivity" id="upSensitivity" class="up-sensitivity">
+            {% for value, label in sensitivity_labels %}
+            <option value="{{ value }}" {% if value == 'media' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
         <div class="up-actions">
             <button type="submit" class="btn btn-primary" id="upSubmit" disabled>Subir y procesar</button>
             <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-secondary">Cancelar</a>
