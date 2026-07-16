@@ -30,7 +30,7 @@
         <label class="up-sensitivity-label" for="upSensitivity">Sensibilidad de detección</label>
         <select name="sensitivity" id="upSensitivity" class="up-sensitivity">
             {% for value, label in sensitivity_labels %}
-            <option value="{{ value }}" {% if value == 'media' %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ value }}" {% if value == 'auto' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
 

@@ -21,16 +21,17 @@ logger = logging.getLogger(__name__)
 
 PIPELINE_TIMEOUT_S = 180   # si el job sigue en processing pasado esto, se marca failed
 
-SENSITIVITY_CHOICES = ('alta', 'media', 'baja')
+SENSITIVITY_CHOICES = ('auto', 'alta', 'media', 'baja')
 SENSITIVITY_LABELS = [
+    ('auto', 'Automática (prueba varias y elige la mejor — recomendada)'),
     ('alta', 'Alta (detecta más, tolera trazos tenues)'),
-    ('media', 'Media (recomendada)'),
+    ('media', 'Media'),
     ('baja', 'Baja (más estricta, menos ruido)'),
 ]
 
 
 def _clean_sensitivity(value):
-    return value if value in SENSITIVITY_CHOICES else 'media'
+    return value if value in SENSITIVITY_CHOICES else 'auto'
 
 
 @login_required
@@ -77,7 +78,7 @@ def reprocess(request, plan_pk):
 
     job, _ = ProcessingJob.objects.get_or_create(plan=plan)
     # reutiliza la última sensibilidad elegida; se puede forzar con ?sensitivity=
-    prev = (job.vector_data or {}).get('sensitivity', 'media')
+    prev = (job.vector_data or {}).get('sensitivity', 'auto')
     sensitivity = _clean_sensitivity(request.GET.get('sensitivity', prev))
 
     job.status = 'pending'
@@ -122,7 +123,7 @@ def _run_pipeline_threaded(plan_id, job_id, sensitivity):
         close_old_connections()
 
 
-def _run_pipeline(plan, job, sensitivity='media'):
+def _run_pipeline(plan, job, sensitivity='auto'):
     """Ejecuta el pipeline y actualiza el modelo ProcessingJob."""
     job.status = 'processing'
     job.error_message = ''
@@ -148,7 +149,7 @@ def _run_pipeline(plan, job, sensitivity='media'):
         job.vector_data = {
             'sensitivity': sensitivity,
             'counts': counts,
-            'quality': quality_feedback(counts),
+            'quality': {**quality_feedback(counts), 'score': result.get('quality_score')},
             'debug': _json_safe(result.get('debug', {})),
         }
         try:

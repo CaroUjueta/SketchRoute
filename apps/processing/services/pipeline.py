@@ -24,6 +24,49 @@ from . import fabric
 logger = logging.getLogger(__name__)
 
 
+def score_result(result):
+    """Puntúa 0-100 un resultado del pipeline para comparar sensibilidades.
+
+    Señales: recintos cerrados (35), extremos de pared conectados (25),
+    puertas/vanos detectados (20) y recintos con ruta a la salida (20 — la
+    métrica que el usuario percibe, con el mismo modelo de grid del editor)."""
+    if not result.get('success'):
+        return 0.0
+    objs = result['canvas_data']['objects']
+
+    s_rooms = 35.0 * min(result.get('rooms', 0), 4) / 4
+
+    walls = []
+    for o in objs:
+        if o.get('srType') == 'pared':
+            l, t = o.get('left', 0), o.get('top', 0)
+            walls.append((l, t, l + o.get('width', 0), t + o.get('height', 0)))
+    ends_total = ends_touch = 0
+    for i, (x1, y1, x2, y2) in enumerate(walls):
+        for (px, py) in ((x1, y1), (x2, y2)):
+            ends_total += 1
+            for j, (a1, b1, a2, b2) in enumerate(walls):
+                if i == j:
+                    continue
+                cx = min(max(px, min(a1, a2)), max(a1, a2))
+                cy = min(max(py, min(b1, b2)), max(b1, b2))
+                if (px - cx) ** 2 + (py - cy) ** 2 <= 12 ** 2:
+                    ends_touch += 1
+                    break
+    s_conn = 25.0 * ends_touch / ends_total if ends_total else 0.0
+
+    doors_n = sum(1 for o in objs if o.get('srType') in ('puerta', 'vano'))
+    s_doors = 20.0 * min(doors_n, 3) / 3
+
+    try:
+        from qa.routelib import routability
+        ok, total = routability(objs)
+        s_route = 20.0 * ok / total if total else 0.0
+    except Exception:
+        s_route = 10.0   # neutro si qa/routelib no está disponible
+    return round(s_rooms + s_conn + s_doors + s_route, 1)
+
+
 class ProcessingPipeline:
 
     def __init__(self, config=None):
@@ -49,7 +92,33 @@ class ProcessingPipeline:
         if config:
             self.config.update(config)
 
+    SENSITIVITIES = ('media', 'alta', 'baja')
+
     def process(self, image_path):
+        """Con sensitivity='auto' corre el pipeline completo con cada preset y
+        se queda con el mejor por score_result (3× tiempo — corre en segundo
+        plano, la calidad importa más que la velocidad)."""
+        if self.config['sensitivity'] != 'auto':
+            return self._process_single(image_path)
+        best = None
+        scores = {}
+        for sens in self.SENSITIVITIES:
+            self.config['sensitivity'] = sens
+            r = self._process_single(image_path)
+            s = score_result(r)
+            scores[sens] = s
+            logger.info('Sensibilidad %s → score %.1f', sens, s)
+            if best is None or s > best[1]:
+                best = (r, s, sens)
+        self.config['sensitivity'] = 'auto'
+        result, score, sens = best
+        if result.get('debug') is not None:
+            result['debug']['sensitivity_scores'] = scores
+            result['debug']['sensitivity_chosen'] = sens
+        result['quality_score'] = score
+        return result
+
+    def _process_single(self, image_path):
         debug = {}
 
         try:

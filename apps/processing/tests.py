@@ -229,3 +229,29 @@ class RoutabilityTests(TestCase):
         # derecho): ese debe fallar y el resto llegar.
         self.assertGreaterEqual(total, 7)
         self.assertGreaterEqual(ok, total - 1, f'solo {ok}/{total} recintos con ruta')
+
+
+class AutoSensitivityTests(TestCase):
+    def test_score_result_prefiere_mejor_deteccion(self):
+        from .services.pipeline import score_result
+        vacio = {'success': True, 'rooms': 0, 'doors': 0, 'canvas_data': {'objects': []}}
+        bueno = {'success': True, 'rooms': 4, 'doors': 3, 'canvas_data': {'objects': [
+            {'type': 'path', 'srType': 'puerta', 'left': 0, 'top': 0, 'width': 40, 'height': 8},
+            {'type': 'path', 'srType': 'puerta', 'left': 100, 'top': 0, 'width': 40, 'height': 8},
+            {'type': 'path', 'srType': 'puerta', 'left': 200, 'top': 0, 'width': 40, 'height': 8},
+        ]}}
+        self.assertGreater(score_result(bueno), score_result(vacio))
+
+    def test_score_result_fallo_es_cero(self):
+        from .services.pipeline import score_result
+        self.assertEqual(score_result({'success': False}), 0.0)
+
+    def test_auto_elige_sensibilidad_y_reporta_score(self):
+        path = SKETCHES / 'clinica.png'
+        if not path.exists():
+            self.skipTest('qa/sketches/clinica.png no disponible')
+        res = ProcessingPipeline(config={'sensitivity': 'auto'}).process(path)
+        self.assertTrue(res['success'])
+        self.assertIn(res['debug']['sensitivity_chosen'], ('alta', 'media', 'baja'))
+        self.assertGreater(res['quality_score'], 50)
+        self.assertEqual(len(res['debug']['sensitivity_scores']), 3)
