@@ -355,8 +355,15 @@ def detect_page_mask(bgr_image):
     gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
+    # aplanar iluminación: una sombra suave sobre la hoja hacía que Otsu
+    # clasificara media página como "fondo" (se perdía todo el dibujo de esa
+    # zona). Dividir por el fondo desenfocado elimina el gradiente y deja el
+    # contraste hoja/escritorio, que es lo que Otsu debe separar.
+    bg = cv2.GaussianBlur(gray, (0, 0), sigmaX=min(h, w) / 12)
+    flat = cv2.divide(gray, bg, scale=192)
+
     # umbral Otsu: separa la hoja brillante del fondo más oscuro
-    _, bright = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, bright = cv2.threshold(flat, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     # cerrar agujeros (trazos del dibujo dentro de la hoja)
     k = max(15, int(min(h, w) * 0.02)) | 1
