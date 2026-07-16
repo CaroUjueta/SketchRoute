@@ -1194,14 +1194,14 @@ const SR = (() => {
     if (pts.length < 2) { canvas.requestRenderAll(); return; }
     const spec = ROUTE_KINDS[state.routeKind];
     const ortho = toOrtho(pts);
-    const g = renderRoute(ortho, spec.color, spec.mode);
-    if (!g) return;
-    g.set({ srCat: 'ruta-manual', srAuto: false });   // manual: sobrevive a "Generar" y es reclasificable
-    withSuppress(() => canvas.add(g));
-    canvas.setActiveObject(g);
+    const arrows = renderRoute(ortho, spec.color, spec.mode);
+    if (!arrows) return;
+    // manual: cada flechita sobrevive a "Generar" y es reclasificable
+    arrows.forEach(a => a.set({ srCat: 'ruta-manual', srAuto: false }));
+    withSuppress(() => arrows.forEach(a => canvas.add(a)));
     canvas.requestRenderAll();
     pushHistory();
-    setStatus('Ruta dibujada — podés moverla o reclasificarla', 'ok');
+    setStatus('Ruta dibujada — cada flecha se mueve o borra por separado', 'ok');
   }
 
   /* ── Leyenda automática + cartela ───────────────────────── */
@@ -1920,52 +1920,39 @@ const SR = (() => {
   // propia puntita (---->  ---->  --->), y una punta de flecha grande en la
   // salida real. `opts.halo` agrega un trazo blanco de fondo por tramo para
   // distinguir rutas superpuestas.
+  // Devuelve UN grupo POR FLECHA (tramo + puntita): cada flechita se
+  // selecciona/mueve/borra por separado, no la ruta completa ni un path suelto.
   function renderRoute(points, color, modeKey, opts = {}) {
     if (points.length < 2) return null;
     const tipLen = ARROW_SIZE * 0.9;
     const { dashes, tipDir, tipAt } = segmentedPathParts(points, tipLen);
 
-    const parts = [];
     const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
     const midHeadH = ARROW_SIZE * 0.65;
-    dashes.forEach((seg, i) => {
+    const stroke = {
+      strokeWidth: lineWidth, fill: 'transparent',
+      strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+    };
+    const arrows = dashes.map((seg, i) => {
+      const parts = [];
       if (opts.halo) {
         parts.push(new fabric.Path(seg.d, {
-          stroke: '#ffffff', strokeWidth: LINE_W + 4, fill: 'transparent',
-          strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-          opacity: 0.85, selectable: false, evented: false,
-          srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+          ...stroke, stroke: '#ffffff', strokeWidth: LINE_W + 4, opacity: 0.85,
         }));
       }
-      parts.push(new fabric.Path(seg.d, {
-        stroke: color, strokeWidth: lineWidth, fill: 'transparent',
-        strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-        srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-      }));
-      // puntita al final de cada tramo (salvo el último, que ya recibe la
-      // punta grande de salida justo después).
-      if (i < dashes.length - 1) {
-        parts.push(new fabric.Path(arrowHeadD(seg.tip, seg.dir, midHeadH), {
-          stroke: color, strokeWidth: lineWidth, fill: 'transparent',
-          strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-          srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-        }));
-      }
+      parts.push(new fabric.Path(seg.d, { ...stroke, stroke: color }));
+      // puntita intermedia, o la punta grande de salida en el último tramo
+      const last = i === dashes.length - 1;
+      parts.push(new fabric.Path(
+        last ? arrowHeadD(tipAt, tipDir, ARROW_SIZE) : arrowHeadD(seg.tip, seg.dir, midHeadH),
+        { ...stroke, stroke: color },
+      ));
+      return new fabric.Group(parts, {
+        srType: 'ruta-' + modeKey, srCat: 'ruta-auto', srAuto: true,
+        subTargetCheck: false,
+      });
     });
-
-    // Punta de flecha grande, al final del trazo (sobre la salida real).
-    parts.push(new fabric.Path(arrowHeadD(tipAt, tipDir, ARROW_SIZE), {
-      stroke: color, strokeWidth: lineWidth, fill: 'transparent',
-      strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-    }));
-
-    // Una ruta = UN grupo: clic selecciona la flecha completa (antes eran
-    // paths sueltos y el clic agarraba un solo tramo).
-    return new fabric.Group(parts, {
-      srType: 'ruta-' + modeKey, srCat: 'ruta-auto', srAuto: true,
-      subTargetCheck: false,
-    });
+    return arrows.length ? arrows : null;
   }
 
   function clearRoutes(modeKey) {
@@ -2107,9 +2094,9 @@ const SR = (() => {
       const clean = smoothPathOrtho(pts, grid);
       // la flecha nace un poco separada del marcador/icono de origen, no en su centro exacto
       const trimmed = trimPathStart(clean, 16);
-      const arrow = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
-      if (!arrow) return;
-      canvas.add(arrow);
+      const arrows = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
+      if (!arrows) return;
+      arrows.forEach(a => canvas.add(a));
       drawn++;
     });
 
