@@ -434,9 +434,12 @@ const SR = (() => {
       }
 
       const p = canvas.getPointer(opt.e);
-      if (t === 'text')        { addText(p.x, p.y); return; }
-      if (t === 'origen-evac') { placeMarker(p.x, p.y); return; }
-      if (t === 'place')       { if (state.placeType) addIcon(state.placeType, p.x, p.y); return; }
+      // sticky tool: los objetos puntuales vuelven a Seleccionar tras colocar;
+      // Shift sostenido mantiene la herramienta para colocar varios seguidos.
+      const sticky = () => { if (!opt.e.shiftKey) backToSelect(); };
+      if (t === 'text')        { addText(p.x, p.y); sticky(); return; }
+      if (t === 'origen-evac') { placeMarker(p.x, p.y); sticky(); return; }
+      if (t === 'place')       { if (state.placeType) { addIcon(state.placeType, p.x, p.y); sticky(); } return; }
       if (t === 'ruta') {
         // se decide en mouse:up si fue clic (vértice) o arrastre (mano alzada)
         state.rDrag = true; state.rMoved = false; state.freePts = [p];
@@ -637,6 +640,16 @@ const SR = (() => {
     });
 
     canvas.on('mouse:dblclick', () => { if (state.tool === 'ruta') finalizeRoute(); });
+
+    // Alt+arrastre duplica: deja una copia en el lugar original (estilo Figma).
+    canvas.on('mouse:down', () => { state.altCloned = false; });
+    canvas.on('object:moving', (opt) => {
+      if (state.altCloned || !opt.e || !opt.e.altKey) return;
+      const o = opt.target;
+      if (!o || o.srCat === 'page' || o.type === 'activeSelection') return;
+      state.altCloned = true;
+      o.clone((cl) => { withSuppress(() => canvas.add(cl)); canvas.requestRenderAll(); pushHistory(); }, PROPS);
+    });
 
     // Puertas esclavas: al moverlas se deslizan A LO LARGO de su pared;
     // a más de 30px de cualquier pared quedan libres (para cambiarlas de pared).
@@ -2276,7 +2289,11 @@ const SR = (() => {
   function saveData(silent) {
     if (lastSaved === null && typeof PLAN_UPDATED !== 'undefined' && PLAN_UPDATED) lastSaved = PLAN_UPDATED;
     clearTimeout(autoTimer);
-    if (state.conflict) return;   // no pisar el trabajo de otra pestaña
+    if (state.conflict) {
+      // conflicto real: no pisar el trabajo de otra pestaña; ofrecer recargar
+      if (!silent && confirm('Este plano fue modificado en otra pestaña.\n¿Recargar para ver la última versión? (Se pierde lo no guardado aquí)')) location.reload();
+      return;
+    }
     // no autoguardar a mitad de una multi-selección (coords relativas); reintenta luego
     const ao = canvas.getActiveObject();
     if (silent && ao && ao.type === 'activeSelection') { scheduleAutoSave(); return; }
@@ -2474,15 +2491,27 @@ const SR = (() => {
       else if (e.ctrlKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected(); deleteSelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); }
+      else if (e.ctrlKey && e.key === '0') { e.preventDefault(); fit(); }
+      else if (e.ctrlKey && e.key === '1') { e.preventDefault(); applyZoom(1); }
       else if (e.key === 'Enter' && state.tool === 'ruta') { e.preventDefault(); finalizeRoute(); }
       else if (e.key === 'Escape') {
+        // Escalonado (estilo Figma): 1) cancela lo que está a medias,
+        // 2) deselecciona, 3) vuelve a Seleccionar.
         if (state.tool === 'ruta' && (state.routePts || []).length) {
           if (state.routePts.length >= 2) finalizeRoute();
           else { clearRoutePreview(); state.routePts = []; canvas.requestRenderAll(); }
           return;   // sigue en la herramienta ruta
         }
         if (state.tool === 'wall' && state.chain) { endWallChain(); return; }  // corta la cadena
+        if (canvas.getActiveObject()) { canvas.discardActiveObject(); canvas.requestRenderAll(); return; }
         backToSelect();
+      }
+      else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        // atajos de una tecla para herramientas (tooltips en los botones)
+        const k = e.key.toLowerCase();
+        const TOOL_KEYS = { v: 'select', w: 'wall', m: 'furniture', d: 'vano', b: 'door', z: 'rect', t: 'text', e: 'erase' };
+        if (TOOL_KEYS[k]) setTool(TOOL_KEYS[k], document.getElementById('tool-' + TOOL_KEYS[k]));
+        else if (k === 'r') setRouteTool('evac', document.getElementById('route-evac'));
       }
     });
     document.addEventListener('keyup', (e) => {

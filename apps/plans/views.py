@@ -2,9 +2,23 @@ import json
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_POST
 from apps.projects.models import Project
 from .models import Plan
+
+
+def is_stale(last_saved, updated_at):
+    """True si el cliente conoce un updated_at distinto al actual (conflicto real).
+
+    Compara datetimes, no strings: una diferencia de formato ISO (microsegundos,
+    timezone) no debe producir un 409 fantasma que bloquee el autosave."""
+    if not last_saved:
+        return False
+    client_dt = parse_datetime(last_saved)
+    if client_dt is None:
+        return True   # formato irreconocible: mejor avisar que pisar
+    return client_dt != updated_at
 
 
 @login_required
@@ -45,8 +59,7 @@ def save_canvas(request, pk):
     if not isinstance(canvas_data, dict):
         return JsonResponse({'error': 'canvas_data inválido'}, status=400)
 
-    last_saved = body.get('last_saved')
-    if last_saved and last_saved != plan.updated_at.isoformat():
+    if is_stale(body.get('last_saved'), plan.updated_at):
         return JsonResponse({'error': 'conflict'}, status=409)
 
     plan.canvas_data = canvas_data
