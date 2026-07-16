@@ -508,16 +508,86 @@ def snap_segments_to_walls(segments, wall_h, wall_v, tol=30):
     return out
 
 
+def _rectilinear_hull(segs, minx, miny, maxx, maxy):
+    """Perímetro ortogonal (H/V) que envuelve las paredes detectadas.
+
+    Rasteriza los segmentos, cierra huecos con morfología, toma el contorno
+    exterior y lo rectifica a aristas H/V. Devuelve la lista de segmentos del
+    perímetro, o None si el contorno degenera (ahí se usa el rectángulo)."""
+    off = 45   # > kernel/2: sin esto la morfología se pega al borde del raster
+    W = int(maxx - minx) + 2 * off
+    Hh = int(maxy - miny) + 2 * off
+    if W <= 0 or Hh <= 0 or W * Hh > 20_000_000:
+        return None
+    img = np.zeros((Hh, W), np.uint8)
+    for s in segs:
+        cv2.line(img, (int(s[0] - minx + off), int(s[1] - miny + off)),
+                 (int(s[2] - minx + off), int(s[3] - miny + off)), 255, 3)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (61, 61))
+    img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
+    cnts, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    c = max(cnts, key=cv2.contourArea)
+    poly = cv2.approxPolyDP(c, 0.02 * cv2.arcLength(c, True), True).reshape(-1, 2)
+    if len(poly) < 4 or len(poly) > 12:
+        return None
+
+    pts = [(float(x - off + minx), float(y - off + miny)) for x, y in poly]
+
+    # snap de coordenadas del contorno a las coordenadas reales de pared
+    # (el contorno corre por la cara exterior del trazo, unos px afuera)
+    wall_xs = sorted({round(c) for s in segs for c in (s[0], s[2])})
+    wall_ys = sorted({round(c) for s in segs for c in (s[1], s[3])})
+
+    def snap(v, cands, tol=20):
+        best = min(cands, key=lambda c: abs(c - v), default=None)
+        return float(best) if best is not None and abs(best - v) <= tol else v
+
+    # rectificar cada arista a H o V y fundir consecutivas del mismo tipo
+    edges = []
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        if abs(x2 - x1) >= abs(y2 - y1):
+            e = ['h', snap((y1 + y2) / 2, wall_ys)]
+        else:
+            e = ['v', snap((x1 + x2) / 2, wall_xs)]
+        if edges and edges[-1][0] == e[0]:
+            edges[-1][1] = (edges[-1][1] + e[1]) / 2
+        else:
+            edges.append(e)
+    if len(edges) >= 2 and edges[0][0] == edges[-1][0]:
+        edges[0][1] = (edges[0][1] + edges.pop()[1]) / 2
+    if len(edges) < 4 or len(edges) % 2 != 0:
+        return None
+
+    # vértices = intersección de aristas consecutivas; perímetro = aristas entre ellos
+    m = len(edges)
+    verts = []
+    for i in range(m):
+        a, b = edges[i], edges[(i + 1) % m]
+        if a[0] == b[0]:
+            return None
+        x = a[1] if a[0] == 'v' else b[1]
+        y = a[1] if a[0] == 'h' else b[1]
+        verts.append((x, y))
+    perim = []
+    for i in range(m):
+        x1, y1 = verts[i - 1]
+        x2, y2 = verts[i]
+        perim.append([x1, y1, x2, y2])
+    return perim
+
+
 def close_exterior(horizontals, verticals, min_side=80):
-    """Cierra el contorno exterior del edificio como un rectángulo.
+    """Cierra el contorno exterior del edificio.
 
-    Calcula el bounding box de todas las paredes y agrega los 4 lados
-    exteriores, de modo que el envolvente del edificio quede siempre cerrado
-    aunque alguna pared esté demasiado tenue en la foto para detectarse. Las
-    paredes interiores (divisiones) se conservan. Los lados que ya existen se
-    fusionan luego con merge_colinear (no se duplican).
-
-    Asume que el edificio es rectangular (decisión del usuario)."""
+    Envuelve las paredes con un perímetro rectilíneo (soporta plantas en L);
+    si el contorno degenera, cae al rectángulo del bounding box (comportamiento
+    histórico). Las paredes casi coincidentes con el perímetro se quitan para
+    no duplicar el muro; las divisiones interiores se conservan."""
     segs = horizontals + verticals
     if len(segs) < 3:
         return horizontals, verticals
@@ -530,21 +600,27 @@ def close_exterior(horizontals, verticals, min_side=80):
     if maxx - minx < min_side or maxy - miny < min_side:
         return horizontals, verticals
 
-    # quitar paredes paralelas pegadas a un borde exterior: son detecciones
-    # redundantes del propio contorno que, al sumar el borde limpio, quedarían
-    # como pared doble. edge_tol = qué tan cerca del borde se considera duplicado.
-    edge_tol = 45
-    H = [h for h in horizontals
-         if not (abs((h[1] + h[3]) / 2 - miny) < edge_tol
-                 or abs((h[1] + h[3]) / 2 - maxy) < edge_tol)]
-    V = [v for v in verticals
-         if not (abs((v[0] + v[2]) / 2 - minx) < edge_tol
-                 or abs((v[0] + v[2]) / 2 - maxx) < edge_tol)]
+    edge_tol = 45   # qué tan cerca del perímetro se considera pared duplicada
+    perim = _rectilinear_hull(segs, minx, miny, maxx, maxy)
+    if perim is None:
+        perim = [
+            [minx, miny, maxx, miny], [minx, maxy, maxx, maxy],   # arriba/abajo
+            [minx, miny, minx, maxy], [maxx, miny, maxx, maxy],   # izq/der
+        ]
 
-    H.append([minx, miny, maxx, miny])  # arriba
-    H.append([minx, maxy, maxx, maxy])  # abajo
-    V.append([minx, miny, minx, maxy])  # izquierda
-    V.append([maxx, miny, maxx, maxy])  # derecha
+    perim_h = [p for p in perim if abs(p[3] - p[1]) <= abs(p[2] - p[0])]
+    perim_v = [p for p in perim if abs(p[3] - p[1]) > abs(p[2] - p[0])]
+
+    def near_edge(mx, my, edges):
+        return any(_point_seg_dist(mx, my, e) < edge_tol for e in edges)
+
+    H = [h for h in horizontals
+         if not near_edge((h[0] + h[2]) / 2, (h[1] + h[3]) / 2, perim_h)]
+    V = [v for v in verticals
+         if not near_edge((v[0] + v[2]) / 2, (v[1] + v[3]) / 2, perim_v)]
+
+    H.extend(perim_h)
+    V.extend(perim_v)
     return H, V
 
 

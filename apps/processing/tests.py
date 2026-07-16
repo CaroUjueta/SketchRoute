@@ -271,3 +271,23 @@ class TJunctionGapTests(TestCase):
         out = close_gaps(segs, gap_tol=20)
         t = next(s for s in out if s[1] == 150 and s[3] == 150)
         self.assertEqual(max(t[0], t[2]), 300)
+
+
+class CloseExteriorTests(TestCase):
+    def test_planta_en_l_conserva_la_muesca(self):
+        from .services.lines import close_exterior
+        H = [[0, 0, 600, 0], [300, 300, 600, 300], [0, 600, 300, 600]]
+        V = [[0, 0, 0, 600], [600, 0, 600, 300], [300, 300, 300, 600]]
+        h2, v2 = close_exterior(H, V)
+        # 6 lados (L), no 4 (rectángulo): la esquina interior existe
+        self.assertEqual(len(h2) + len(v2), 6)
+        corners = {(round(s[0]), round(s[1])) for s in h2 + v2}
+        corners |= {(round(s[2]), round(s[3])) for s in h2 + v2}
+        self.assertIn((300, 300), corners)
+
+    def test_rectangulo_sigue_cerrando_igual(self):
+        from .services.lines import close_exterior
+        H = [[0, 0, 600, 0], [0, 400, 600, 400]]
+        V = [[0, 0, 0, 400], [600, 0, 600, 400]]
+        h2, v2 = close_exterior(H, V)
+        self.assertEqual(len(h2) + len(v2), 4)
