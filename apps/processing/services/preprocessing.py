@@ -2,6 +2,33 @@ import cv2
 import numpy as np
 
 
+def deskew(image, min_deg=2.0, max_deg=15.0):
+    """Endereza una foto levemente torcida con rotación pura (sin homografía).
+
+    correct_perspective se auto-desactiva en fotos torcidas sin borde de hoja
+    claro; el clasificador de líneas H/V estricto pierde entonces los trazos
+    oblicuos. Este fallback mide el ángulo dominante de las líneas (Hough) y,
+    si está a 2-15° de los ejes, rota la imagen para recuperarlos. Devuelve
+    (imagen, grados_aplicados)."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+    found = cv2.HoughLines(edges, 1, np.pi / 360, 150)
+    if found is None or len(found) < 5:
+        return image, 0.0
+    devs = []
+    for entry in found[:300]:
+        deg = np.degrees(entry[0][1]) % 90.0
+        devs.append(deg if deg <= 45 else deg - 90.0)   # desvío del eje [-45,45]
+    med = float(np.median(devs))
+    if abs(med) < min_deg or abs(med) > max_deg:
+        return image, 0.0
+    h, w = image.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), med, 1.0)
+    out = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_LINEAR,
+                         borderMode=cv2.BORDER_REPLICATE)
+    return out, med
+
+
 def correct_perspective(image):
     """Corrige perspectiva encontrando el contorno del documento y aplicando
     transformación de homografía.

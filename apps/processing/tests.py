@@ -291,3 +291,31 @@ class CloseExteriorTests(TestCase):
         V = [[0, 0, 0, 400], [600, 0, 600, 400]]
         h2, v2 = close_exterior(H, V)
         self.assertEqual(len(h2) + len(v2), 4)
+
+
+class DeskewTests(TestCase):
+    """Fotos torcidas 2-15° se enderezan por rotación pura y el pipeline
+    produce los mismos conteos que con la foto derecha."""
+
+    def test_deskew_recupera_rotacion_leve(self):
+        import cv2
+        from .services.preprocessing import deskew
+        path = SKETCHES / 'clinica.png'
+        if not path.exists():
+            self.skipTest('qa/sketches/clinica.png no disponible')
+        img = cv2.imread(str(path))
+        h, w = img.shape[:2]
+        for ang in (5, -6):
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), ang, 1.0)
+            rot = cv2.warpAffine(img, M, (w, h), borderValue=(255, 255, 255))
+            _, applied = deskew(rot)
+            self.assertAlmostEqual(applied, -ang, delta=1.0)
+
+    def test_foto_derecha_no_se_toca(self):
+        import cv2
+        from .services.preprocessing import deskew
+        path = SKETCHES / 'clinica.png'
+        if not path.exists():
+            self.skipTest('qa/sketches/clinica.png no disponible')
+        _, applied = deskew(cv2.imread(str(path)))
+        self.assertEqual(applied, 0.0)
