@@ -149,6 +149,7 @@ const SR = (() => {
           state.loadingHistory = false;
           // Planos viejos con rutas auto como paths sueltos cargan tal cual;
           // el primer "Generar" los reemplaza por grupos (clearRoutes cubre ambos).
+          splitLegacyRouteGroups();
           fixupManualArrows();
           fixupWallCaps();
           ensureHeader();
@@ -1206,6 +1207,7 @@ const SR = (() => {
     withSuppress(() => arrows.forEach(a => canvas.add(a)));
     canvas.requestRenderAll();
     pushHistory();
+    backToSelect();   // vuelve a Seleccionar (como los objetos puntuales)
     setStatus('Ruta dibujada — cada flecha se mueve o borra por separado', 'ok');
   }
 
@@ -1992,6 +1994,34 @@ const SR = (() => {
       srType: 'aviso-conexion', srCat: 'aviso', srHidden: true,
     });
     canvas.add(g);
+  }
+
+  // Migración: una versión intermedia guardaba la RUTA COMPLETA como un solo
+  // grupo (todas las flechas juntas al seleccionar). Se parte en grupos por
+  // flecha. Estructura de hijos por flecha: [halo?][tramo][puntita].
+  function splitLegacyRouteGroups() {
+    canvas.getObjects().slice().forEach(o => {
+      if (o.type !== 'group') return;
+      if (o.srCat !== 'ruta-auto' && o.srCat !== 'ruta-manual') return;
+      const kids = o.getObjects();
+      const hasHalo = kids.length && kids[0].stroke === '#ffffff';
+      const per = hasHalo ? 3 : 2;
+      if (kids.length <= per) return;              // ya es una sola flecha
+      if (kids.length % per !== 0) return;         // estructura desconocida: no tocar
+      const { srType, srCat } = o;
+      o._restoreObjectsState();                    // hijos a coordenadas absolutas
+      withSuppress(() => {
+        canvas.remove(o);
+        for (let i = 0; i < kids.length; i += per) {
+          const parts = kids.slice(i, i + per);
+          parts.forEach(p => { if (p.setCoords) p.setCoords(); });
+          canvas.add(new fabric.Group(parts, {
+            srType, srCat, srAuto: srCat === 'ruta-auto', subTargetCheck: false,
+          }));
+        }
+      });
+    });
+    canvas.requestRenderAll();
   }
 
   function generate(modeKey) {

@@ -400,7 +400,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=26"></script>
+<script src="{% static 'js/canvas.js' %}?v=27"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
