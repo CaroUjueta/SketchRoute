@@ -19,6 +19,8 @@ staticfiles/
 .venv/
 venv/
 
+backups/
+
 # IDE
 .vscode/
 .idea/

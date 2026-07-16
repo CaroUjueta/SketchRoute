@@ -6,7 +6,8 @@
   <title>{% block title %}SketchRoute — Rutas de Evacuación y Sanitarias{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=8">
+  <link rel="icon" type="image/png" href="{% static 'img/logo.png' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -15,7 +16,7 @@
     <nav>
       <div class="nav-brand">
         <a href="{% url 'home' %}">
-          <span class="nav-dot"></span>SketchRoute
+          <img src="{% static 'img/logo.png' %}" alt="SketchRoute" class="nav-logo">SketchRoute
         </a>
       </div>
       <div class="nav-links">

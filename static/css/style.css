@@ -97,12 +97,9 @@ header nav {
   text-decoration: none;
 }
 
-.nav-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  background: #ffffff;
+.nav-logo {
+  width: 26px; height: 26px;
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(255,255,255,.8);
   flex-shrink: 0;
 }
 
@@ -191,10 +188,11 @@ main { padding-top: var(--nav-h); min-height: 100vh; }
 .hero-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(28,44,76,.35) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(28,44,76,.35) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background-image: url('/static/img/logo.png');
+  background-repeat: no-repeat;
+  background-position: 105% 50%;
+  background-size: 55%;
+  opacity: .06;
 }
 
 .hero-glow {
@@ -588,10 +586,11 @@ footer p {
   content: '';
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(28,44,76,.28) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(28,44,76,.28) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background-image: url('/static/img/logo.png');
+  background-repeat: no-repeat;
+  background-position: 50% 50%;
+  background-size: 45%;
+  opacity: .06;
 }
 .auth-page::after {
   content: '';
