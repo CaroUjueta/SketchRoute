@@ -16,6 +16,8 @@ const CLEAR = 20;                  // holgura alrededor de obstáculos (px)
 const SNAP = 24;                   // radio de enganche entre extremos (px)
 const LINE_W = 5;                  // grosor del trazo de la ruta (px)
 const ARROW_SIZE = 16;             // apertura de la punta (px)
+const SEGMENT_LEN = 46;            // largo de cada tramo recto de la ruta (px)
+const SEGMENT_GAP = 20;            // hueco entre tramos (px)
 const AUTOSAVE_MS = 2500;          // espera tras editar antes de autoguardar
 
 const OBSTACLES = new Set(['pared', 'mueble', 'zona']);
@@ -880,7 +882,10 @@ const SR = (() => {
   const setColor   = (v) => forSelection(o => {
     if (o.srCat === 'icon' || o.type === 'image') return;
     if (isTextObj(o)) o.set('fill', v);
-    else if (o.srCat === 'ruta-manual') o.set({ stroke: v, fill: v });  // línea + cabeza
+    else if (o.srCat === 'ruta-manual') {
+      if (o.type === 'group') o.forEachObject(ch => { ch.set('stroke', v); if (ch.fill && ch.fill !== 'transparent') ch.set('fill', v); });
+      else o.set({ stroke: v, fill: v });
+    }
     else if (o.stroke) o.set('stroke', v);
     else o.set('fill', v);
   });
@@ -1229,7 +1234,8 @@ const SR = (() => {
       const cy = TITLE_H + i * ROW_H + ROW_H / 2;
       if (r.arrow) {
         const a = makeArrowShape(r.arrow, 34);
-        a.set({ left: PADX + ICON / 2, top: cy, strokeWidth: 3 });
+        a.forEachObject(ch => ch.set('strokeWidth', 3));
+        a.set({ left: PADX + ICON / 2, top: cy });
         parts.push(a);
       } else {
         const img = await loadThumb(r.type);
@@ -1446,6 +1452,14 @@ const SR = (() => {
       appendAxis(out, p, grid);
       return true;
     }
+    if (!requireClear) {
+      // ningún codo queda despejado: igual conectamos (el mejor de los dos,
+      // el más corto) para no cortar la ruta antes de llegar al destino.
+      const lenA = Math.hypot(elbowA.x - last.x, elbowA.y - last.y) + Math.hypot(p.x - elbowA.x, p.y - elbowA.y);
+      const lenB = Math.hypot(elbowB.x - last.x, elbowB.y - last.y) + Math.hypot(p.x - elbowB.x, p.y - elbowB.y);
+      appendAxis(out, lenA <= lenB ? elbowA : elbowB, grid);
+      appendAxis(out, p, grid);
+    }
     return !requireClear;
   }
 
@@ -1458,10 +1472,19 @@ const SR = (() => {
     return out;
   }
 
+  // Conecta el último punto de la ruta con la salida real (un solo salto: el
+  // A* ya trajo la ruta hasta la celda libre más cercana a la puerta, así que
+  // de ahí al ícono suele ser corto). Un `via` intermedio aquí multiplicaba
+  // un codo extra por cada carril/color que converge en la misma salida,
+  // formando un enredo de flechas cruzadas cuando hay varias rutas. Si el
+  // salto directo queda bloqueado, se traza igual (mejor llegar exacto al
+  // ícono que cortar la ruta antes de la salida).
   function connectEndpoint(pts, goalPt, grid) {
     if (!goalPt || pts.length < 1) return pts;
     const out = pts.slice();
-    appendOrthogonal(out, { x: goalPt.x, y: goalPt.y }, grid, true);
+    if (!appendOrthogonal(out, { x: goalPt.x, y: goalPt.y }, grid, true)) {
+      appendOrthogonal(out, { x: goalPt.x, y: goalPt.y }, grid, false);
+    }
     return out;
   }
 
@@ -1687,6 +1710,34 @@ const SR = (() => {
     return out;
   }
 
+  // ¿Se puede ir de `a` a `b` en línea recta o con un solo codo a 90°, sin
+  // cruzar obstáculos? (mismo criterio que usa appendOrthogonal, pero sin
+  // mutar nada — solo para decidir si vale la pena saltar hasta `b`).
+  function orthoReachable(grid, a, b) {
+    if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) return axisSegmentClear(grid, a, b);
+    const elbowA = { x: a.x, y: b.y }, elbowB = { x: b.x, y: a.y };
+    const aClear = axisSegmentClear(grid, a, elbowA) && axisSegmentClear(grid, elbowA, b);
+    const bClear = axisSegmentClear(grid, a, elbowB) && axisSegmentClear(grid, elbowB, b);
+    return aClear || bClear;
+  }
+
+  // Como smoothPath, pero las rutas de evacuación/señalización van SIEMPRE en
+  // ángulos rectos (0°/90°/180°/270°): en vez de saltar en línea recta a lo
+  // Bresenham (que mete diagonales), salta al punto más lejano alcanzable con
+  // un único codo ortogonal e inserta ese codo (vía appendOrthogonal).
+  function smoothPathOrtho(pts, grid) {
+    if (!grid || pts.length <= 2) return pts;
+    const out = [pts[0]];
+    let i = 0;
+    while (i < pts.length - 1) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !orthoReachable(grid, pts[i], pts[j])) j--;
+      appendOrthogonal(out, pts[j], grid, true);
+      i = j;
+    }
+    return out;
+  }
+
   // Recorta el arranque de la ruta `dist` px (para que la flecha nazca un poco
   // separada del marcador/icono de origen, en vez de salir de su centro exacto).
   function trimPathStart(pts, dist) {
@@ -1704,29 +1755,35 @@ const SR = (() => {
     return out;
   }
 
-  // Flecha manual como un solo path: misma geometría que la auto-generada, pero
-  // sin grupo separado para que la punta quede centrada y rotada correctamente.
+  // Flecha manual (retoque): MISMO estilo que las rutas — tramos rectos con
+  // hueco, puntita en cada uno y punta grande al final — para que al soltarla
+  // junto a una ruta dibujada no se note la costura. Es un grupo de fabric.Path
+  // (línea recta local, se rota/traslada con el grupo).
   function makeArrowShape(color, len) {
     const L = len || 72;                   // largo total de la flecha
-    const h = ARROW_SIZE, w = h * 0.55;
-    const xTip = L / 2;
-    const xLine = -L / 2;
-    // línea hasta la base de la cabeza + triángulo CERRADO y relleno
-    const d = [
-      `M ${xLine} 0`,
-      `L ${xTip - h} 0`,
-      `M ${xTip - h} ${w}`,
-      `L ${xTip} 0`,
-      `L ${xTip - h} ${-w}`,
-      'Z',
-    ].join(' ');
-    const p = new fabric.Path(d, {
-      fill: color,
-      stroke: color,
-      strokeWidth: LINE_W,
-      strokeLineCap: 'round',
-      strokeLineJoin: 'round',
-      strokeUniform: true,
+    const tipLen = ARROW_SIZE * 0.9;
+    const xTip = L / 2, xStart = -L / 2;
+    const usable = Math.max(0, L - tipLen);
+    const midHeadH = ARROW_SIZE * 0.65;
+    const dashes = [];
+    let start = 0;
+    while (start < usable - 0.5) {
+      const end = Math.min(start + SEGMENT_LEN, usable);
+      if (end - start < SEGMENT_LEN * 0.4 && dashes.length) break;
+      dashes.push([xStart + start, xStart + end]);
+      start = end + SEGMENT_GAP;
+    }
+    if (!dashes.length) dashes.push([xStart, xStart + usable]);
+
+    const opts = { stroke: color, strokeWidth: LINE_W, fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true };
+    const parts = [];
+    dashes.forEach(([x0, x1], i) => {
+      parts.push(new fabric.Path(`M ${x0} 0 L ${x1} 0`, opts));
+      if (i < dashes.length - 1) parts.push(new fabric.Path(arrowHeadD({ x: x1, y: 0 }, { x: 1, y: 0 }, midHeadH), opts));
+    });
+    parts.push(new fabric.Path(arrowHeadD({ x: xTip, y: 0 }, { x: 1, y: 0 }, ARROW_SIZE), opts));
+
+    const g = new fabric.Group(parts, {
       originX: 'center',
       originY: 'center',
       centeredScaling: true,
@@ -1736,9 +1793,9 @@ const SR = (() => {
       lockSkewingY: true,
     });
     // laterales = estirar el largo (se hornea en bakeArrowStretch); sin verticales
-    p.setControlsVisibility({ mt: false, mb: false });
-    p.srLen = L;
-    return p;
+    g.setControlsVisibility({ mt: false, mb: false });
+    g.srLen = L;
+    return g;
   }
 
   // Si la flecha quedó con escala no uniforme (la estiraron con una manija
@@ -1747,10 +1804,11 @@ const SR = (() => {
     const sx = Math.abs(o.scaleX || 1), sy = Math.abs(o.scaleY || 1);
     if (Math.abs(sx - sy) < 0.01) return;     // escala uniforme: nada que corregir
     const newLen = Math.max(28, (o.srLen || 72) * sx / sy);
-    const n = makeArrowShape(o.stroke, newLen);
+    const color = o.stroke || (o._objects && o._objects[0] && o._objects[0].stroke) || EVAC_COLOR;
+    const n = makeArrowShape(color, newLen);
     n.set({
       left: o.left, top: o.top, angle: o.angle || 0,
-      scaleX: sy, scaleY: sy, strokeWidth: o.strokeWidth,
+      scaleX: sy, scaleY: sy,
     });
     n.srType = o.srType; n.srCat = o.srCat;
     state.suppress = true;
@@ -1772,110 +1830,121 @@ const SR = (() => {
     });
   }
 
-  const ROUTE_CORNER_R = 12;     // radio de redondeo en cada giro (px)
-  const CHEVRON_SPACING = 120;   // separación entre marcas de dirección (px)
-
-  // Construye el `d` de un solo Path continuo con esquinas redondeadas (L + Q
-  // en cada giro), recortando el tramo final para dejar sitio a la punta.
-  function roundedPathD(points, tipLen) {
-    const pts = points;
-    let d = `M ${pts[0].x} ${pts[0].y} `;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
-      const d1 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-      const d2 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      const r = Math.min(ROUTE_CORNER_R, d1 / 2, d2 / 2);
-      if (r < 1 || d1 < 0.5) { d += `L ${p1.x} ${p1.y} `; continue; }
-      const u1x = (p1.x - p0.x) / d1, u1y = (p1.y - p0.y) / d1;
-      const u2x = (p2.x - p1.x) / (d2 || 1), u2y = (p2.y - p1.y) / (d2 || 1);
-      const a = { x: p1.x - u1x * r, y: p1.y - u1y * r };
-      const b = { x: p1.x + u2x * r, y: p1.y + u2y * r };
-      d += `L ${a.x} ${a.y} Q ${p1.x} ${p1.y} ${b.x} ${b.y} `;
-    }
-    const last = pts[pts.length - 1];
-    const prev = pts[pts.length - 2] || last;
-    const dx = last.x - prev.x, dy = last.y - prev.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
-    const lineTo = { x: last.x - ux * tipLen, y: last.y - uy * tipLen };
-    d += `L ${lineTo.x} ${lineTo.y}`;
-    return { d, tipDir: { x: ux, y: uy }, tipAt: last };
-  }
-
-  // Marca de dirección (chevron) sutil a lo largo de la ruta, reforzando el
-  // sentido en tramos largos sin recargar la flecha con puntas repetidas.
-  function makeChevron(cx, cy, ux, uy, color, modeKey) {
-    const px = -uy, py = ux;
-    const s = 6;
-    const p1 = { x: cx - ux * s + px * s * 0.7, y: cy - uy * s + py * s * 0.7 };
-    const p2 = { x: cx + ux * s * 0.5, y: cy + uy * s * 0.5 };
-    const p3 = { x: cx - ux * s - px * s * 0.7, y: cy - uy * s - py * s * 0.7 };
-    return new fabric.Path(`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y}`, {
-      stroke: color, strokeWidth: 2, opacity: 0.4, fill: 'transparent',
-      strokeLineCap: 'round', strokeLineJoin: 'round',
-      selectable: false, evented: false,
-      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-    });
-  }
-
-  function makeChevrons(points, color, modeKey) {
-    const marks = [];
-    let acc = CHEVRON_SPACING * 0.6;   // primer chevron un poco antes del punto de partida
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1], b = points[i];
+  // Punto a una distancia `dist` recorriendo la polilínea `pts` (sin suavizar
+  // esquinas). Devuelve también el índice del tramo original en el que cae,
+  // para poder incluir los vértices intermedios de un tramo de flecha.
+  function pointAtDistance(pts, dist) {
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
       const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-      if (segLen < 1) continue;
-      const ux = (b.x - a.x) / segLen, uy = (b.y - a.y) / segLen;
-      let d = CHEVRON_SPACING - acc;
-      while (d < segLen - 8) {
-        const t = d / segLen;
-        marks.push(makeChevron(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, ux, uy, color, modeKey));
-        d += CHEVRON_SPACING;
+      if (dist <= acc + segLen || i === pts.length - 1) {
+        const t = segLen < 1e-6 ? 0 : Math.max(0, Math.min(1, (dist - acc) / segLen));
+        return { point: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, segIndex: i };
       }
-      acc = (acc + segLen) % CHEVRON_SPACING;
+      acc += segLen;
     }
-    return marks;
+    return { point: pts[pts.length - 1], segIndex: pts.length - 1 };
   }
 
-  // Ruta = un solo trazo continuo con esquinas redondeadas + una única punta
-  // de flecha al final + chevrons de refuerzo direccional. `opts.halo` agrega
-  // un trazo blanco de fondo para distinguir rutas que quedaron superpuestas.
+  // Dirección de avance en `dist`, mirando hacia atrás una distancia fija en
+  // vez de usar el último vértice crudo del polígono: cerca de esquinas,
+  // uniones con la puerta o desfases de carril puede haber "leves" de un par
+  // de px que, tomados solos, apuntan en cualquier ángulo — mirar `lookback`
+  // px atrás promedia esos quiebres y da una flecha bien orientada.
+  function dirAtDistance(pts, dist, lookback) {
+    const a = pointAtDistance(pts, Math.max(0, dist - lookback)).point;
+    const b = pointAtDistance(pts, dist).point;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  }
+
+  const ARROW_LOOKBACK = 14;     // px hacia atrás para calcular la orientación de una punta
+
+  // Trocea la ruta `points` en tramos rectos de largo `SEGMENT_LEN` separados
+  // por huecos de `SEGMENT_GAP`, dejando `tipLen` libre al final para la punta
+  // de flecha. Cada tramo sigue los vértices originales que atraviesa (no es
+  // una cuerda recta) para no cortar a través de paredes en los giros.
+  function segmentedPathParts(points, tipLen) {
+    const pts = points;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+
+    const usable = Math.max(0, total - tipLen);
+    const dashes = [];
+    let start = 0;
+    while (start < usable - 0.5) {
+      const end = Math.min(start + SEGMENT_LEN, usable);
+      if (end - start < SEGMENT_LEN * 0.4) break;   // cola muy corta: no vale la pena, la cubre la punta final
+      const from = pointAtDistance(pts, start);
+      const to = pointAtDistance(pts, end);
+      const way = [from.point];
+      for (let i = from.segIndex; i < to.segIndex; i++) way.push(pts[i]);
+      way.push(to.point);
+      const clean = way.filter((p, i) => i === 0 || Math.hypot(p.x - way[i - 1].x, p.y - way[i - 1].y) > 0.5);
+      if (clean.length < 2) { start = end + SEGMENT_GAP; continue; }
+      let d = `M ${clean[0].x} ${clean[0].y} `;
+      for (let i = 1; i < clean.length; i++) d += `L ${clean[i].x} ${clean[i].y} `;
+      dashes.push({ d, dir: dirAtDistance(pts, end, ARROW_LOOKBACK), tip: clean[clean.length - 1] });
+      start = end + SEGMENT_GAP;
+    }
+
+    return { dashes, tipDir: dirAtDistance(pts, total, ARROW_LOOKBACK), tipAt: pts[pts.length - 1] };
+  }
+
+  // `d` de un triángulo de punta de flecha en `tipAt`, apuntando en `dir`.
+  function arrowHeadD(tipAt, dir, h) {
+    const w = h * 0.55;
+    const px = -dir.y, py = dir.x;
+    const lx = tipAt.x - dir.x * h + px * w, ly = tipAt.y - dir.y * h + py * w;
+    const rx = tipAt.x - dir.x * h - px * w, ry = tipAt.y - dir.y * h - py * w;
+    return `M ${lx} ${ly} L ${tipAt.x} ${tipAt.y} L ${rx} ${ry}`;
+  }
+
+  // Ruta = varios tramos rectos separados por un hueco, cada uno con su
+  // propia puntita (---->  ---->  --->), y una punta de flecha grande en la
+  // salida real. `opts.halo` agrega un trazo blanco de fondo por tramo para
+  // distinguir rutas superpuestas.
   function renderRoute(points, color, modeKey, opts = {}) {
     if (points.length < 2) return null;
     const tipLen = ARROW_SIZE * 0.9;
-    const { d, tipDir, tipAt } = roundedPathD(points, tipLen);
+    const { dashes, tipDir, tipAt } = segmentedPathParts(points, tipLen);
 
     const parts = [];
-    if (opts.halo) {
-      parts.push(new fabric.Path(d, {
-        stroke: '#ffffff', strokeWidth: LINE_W + 4, fill: 'transparent',
+    const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
+    const midHeadH = ARROW_SIZE * 0.65;
+    dashes.forEach((seg, i) => {
+      if (opts.halo) {
+        parts.push(new fabric.Path(seg.d, {
+          stroke: '#ffffff', strokeWidth: LINE_W + 4, fill: 'transparent',
+          strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+          opacity: 0.85, selectable: false, evented: false,
+          srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+        }));
+      }
+      parts.push(new fabric.Path(seg.d, {
+        stroke: color, strokeWidth: lineWidth, fill: 'transparent',
         strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-        opacity: 0.85, selectable: false, evented: false,
         srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
       }));
-    }
+      // puntita al final de cada tramo (salvo el último, que ya recibe la
+      // punta grande de salida justo después).
+      if (i < dashes.length - 1) {
+        parts.push(new fabric.Path(arrowHeadD(seg.tip, seg.dir, midHeadH), {
+          stroke: color, strokeWidth: lineWidth, fill: 'transparent',
+          strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
+          srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
+        }));
+      }
+    });
 
-    const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
-    parts.push(new fabric.Path(d, {
+    // Punta de flecha grande, al final del trazo (sobre la salida real).
+    parts.push(new fabric.Path(arrowHeadD(tipAt, tipDir, ARROW_SIZE), {
       stroke: color, strokeWidth: lineWidth, fill: 'transparent',
       strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
       srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
     }));
-
-    // Punta de flecha única, al final del trazo.
-    const h = ARROW_SIZE, w = h * 0.55;
-    const px = -tipDir.y, py = tipDir.x;
-    const lx = tipAt.x - tipDir.x * h + px * w, ly = tipAt.y - tipDir.y * h + py * w;
-    const rx = tipAt.x - tipDir.x * h - px * w, ry = tipAt.y - tipDir.y * h - py * w;
-    parts.push(new fabric.Path(`M ${lx} ${ly} L ${tipAt.x} ${tipAt.y} L ${rx} ${ry}`, {
-      stroke: color, strokeWidth: lineWidth, fill: 'transparent',
-      strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
-      srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
-    }));
-
-    if (opts.chevrons !== false && points.length > 2) {
-      parts.push(...makeChevrons(points, color, modeKey));
-    }
 
     return parts;
   }
@@ -1933,11 +2002,17 @@ const SR = (() => {
     // Metas (salidas): las que puso el usuario; si no hay, se usa la puerta más
     // ancha como salida automática hacia la calle (sin colocar ícono).
     const goalObjs = all.filter(isSalida);
-    let goalPoints = goalObjs.map(g => snapGoalToDoor(g.getCenterPoint(), all));
+    // goalPoints = el ícono real que puso el usuario (ahí debe terminar la
+    // flecha); goalViaPoints = el centro de la puerta más cercana, usado solo
+    // para elegir una celda de meta despejada para el A* (evita que el
+    // pathfinding se vaya lejos si el ícono cae justo sobre el hueco/pared).
+    let goalPoints = goalObjs.map(g => g.getCenterPoint());
+    let goalViaPoints = goalObjs.map(g => snapGoalToDoor(g.getCenterPoint(), all));
     if (!goalPoints.length) {
       const auto = autoExitPoint();
       if (!auto) { setStatus('Coloca una salida o una puerta', 'warn'); return; }
       goalPoints = [auto];
+      goalViaPoints = [auto];
     }
 
     // jobs = { center, color }
@@ -1965,9 +2040,10 @@ const SR = (() => {
     const unreachable = [];     // centros de orígenes/canecas sin ruta a la salida
     const grid = buildGrid();
     const cols = grid.cols;
-    // meta = punto real de la salida + su celda libre más cercana (emparejados)
+    // meta = punto real de la salida + su celda libre más cercana (celda
+    // calculada desde `via`, el centro de la puerta, no desde el ícono).
     const goals = goalPoints
-      .map(p => ({ p, cell: nearestFree(grid, toCell(p).cx, toCell(p).cy) }))
+      .map((p, i) => ({ p, via: goalViaPoints[i], cell: nearestFree(grid, toCell(goalViaPoints[i]).cx, toCell(goalViaPoints[i]).cy) }))
       .filter(g => g.cell);
     // las salidas también convergen el carril a su centro (como las puertas),
     // para que la ruta termine sobre la salida y no en un carril paralelo.
@@ -1979,9 +2055,9 @@ const SR = (() => {
     const prepared = jobs.map(j => {
       const sCell = nearestFree(grid, toCell(j.center).cx, toCell(j.center).cy);
       if (!sCell) { unreachable.push(j.center); return null; }
-      let best = null, bestPt = null, bestD = Infinity;
-      goals.forEach((g) => { const d = heur(sCell, g.cell); if (d < bestD) { bestD = d; best = g.cell; bestPt = g.p; } });
-      return best ? { ...j, sCell, goalCell: best, goalPt: bestPt, dist: bestD } : null;
+      let best = null, bestPt = null, bestVia = null, bestD = Infinity;
+      goals.forEach((g) => { const d = heur(sCell, g.cell); if (d < bestD) { bestD = d; best = g.cell; bestPt = g.p; bestVia = g.via; } });
+      return best ? { ...j, sCell, goalCell: best, goalPt: bestPt, goalVia: bestVia, dist: bestD } : null;
     }).filter(Boolean);
 
     // agrupar por color (cada color forma un árbol coherente) y, dentro de cada
@@ -2014,11 +2090,17 @@ const SR = (() => {
       cells.forEach(c => usedColor.set(c.cy * cols + c.cx, j.color));
       // string-pulling sobre las celdas del A* → menos escalera, diagonales
       // donde hay espacio libre; luego se conecta al punto real de la meta.
-      let simple = smoothPath(simplify(cells), grid);
+      let simple = smoothPathOrtho(simplify(cells), grid);
       simple = connectEndpoint(simple, j.goalPt, grid);
       const { pts, collapsed } = buildSafeRoutePoints(simple, laneOf[j.color] || 0, grid, doorCenters);
+      // el desfase de carril mete un punto cada ~22px con un offset que puede
+      // vibrar de un punto al siguiente (más pasillos/puertas cerca = más
+      // ruido) — un segundo string-pulling atajos la parte "temblorosa" en
+      // línea recta donde el espacio esté libre, sin eso las flechas por
+      // tramos exponen cada micro-zigzag con su propia punta.
+      const clean = smoothPathOrtho(pts, grid);
       // la flecha nace un poco separada del marcador/icono de origen, no en su centro exacto
-      const trimmed = trimPathStart(pts, 16);
+      const trimmed = trimPathStart(clean, 16);
       const arrows = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
       if (!arrows) return;
       arrows.forEach(a => canvas.add(a));

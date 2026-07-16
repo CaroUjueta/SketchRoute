@@ -230,8 +230,10 @@
         </div>
       </div>
 
-      <!-- 4 · Rutas automáticas: colocás el punto de partida y las salidas,
-           las flechas se trazan solas hasta la salida más cercana. -->
+      <!-- Rutas automáticas: ocultas de la UI (el JS de SR.generateEvac/San
+           sigue en canvas.js por si se reactivan). El flujo actual es 100%
+           manual: dibujás punto a punto y listo, mismo look que antes tenía
+           lo autogenerado.
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
           <span><i class="ed-dot ed-dot--green"></i>4 · Rutas automáticas</span><span class="ed-chevron">▾</span>
@@ -253,14 +255,15 @@
           </button>
         </div>
       </div>
+      -->
 
-      <!-- 5 · Rutas manuales (dibujo libre, de respaldo para retocar un tramo) -->
+      <!-- 4 · Rutas (dibujo manual: clic por punto o mano alzada) -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--blue"></i>5 · Rutas manuales</span><span class="ed-chevron">▾</span>
+          <span><i class="ed-dot ed-dot--blue"></i>4 · Rutas</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
-          <p class="ed-hint">Elegí el tipo y dibujá: un clic por punto (Enter o doble clic termina), o trazá a mano alzada y se endereza solo.</p>
+          <p class="ed-hint">Elegí el tipo y trazá la ruta hasta la salida: un clic por vértice (doble clic o Enter termina, Esc cancela), o dibujá a mano alzada y se endereza sola a 90°.</p>
           <button class="ed-tool ed-tool--wide" onclick="SR.setRouteTool('evac', this)">
             <span class="ed-dot-route ed-dot-route--evac"></span>
             <span>Ruta de evacuación</span>
@@ -286,13 +289,13 @@
         </div>
       </div>
 
-      <!-- 6 · Flechas manuales (retoque) -->
+      <!-- 5 · Flechas manuales (retoque) -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--green"></i>6 · Flechas (retoque)</span><span class="ed-chevron">▾</span>
+          <span><i class="ed-dot ed-dot--green"></i>5 · Flechas (retoque)</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
-          <p class="ed-hint">Arrástrala y rótala para reemplazar una flecha mal generada.</p>
+          <p class="ed-hint">Mismo estilo que una ruta dibujada (tramos con hueco). Arrástrala, rótala y estirala para completar o corregir un tramo puntual.</p>
           <div class="ed-icons-grid">
             <div class="ed-icon-item" draggable="true" data-type="flecha_evac">
               <div class="ed-icon-preview" data-icon="flecha_evac"></div><span>Evacuación</span>
