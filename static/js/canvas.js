@@ -12,7 +12,12 @@
 
 const DOC  = { w: 1320, h: 864 };  // ratio oficio horizontal (330×216 mm)
 const GRID = 10;                   // px por celda de la grilla de ruteo
-const CLEAR = 20;                  // holgura alrededor de obstáculos (px)
+const CLEAR = 20;                  // holgura para abrir el paso en puertas (px)
+// Holgura del BLOQUEO duro de paredes/muebles. Antes era CLEAR (20px): dos
+// paredes de un pasillo de ~60px lo bloqueaban por completo y todo quedaba
+// "sin salida". El A* ya penaliza acercarse a la pared (mapa `near`), así que
+// el bloqueo duro solo necesita evitar el solape físico.
+const BLOCK_PAD = 8;
 const SNAP = 24;                   // radio de enganche entre extremos (px)
 const LINE_W = 5;                  // grosor del trazo de la ruta (px)
 const ARROW_SIZE = 16;             // apertura de la punta (px)
@@ -1359,7 +1364,7 @@ const SR = (() => {
     //    bounding box (las paredes/muebles son Line: su AABB rotado ya es ajustado).
     canvas.getObjects().forEach((o) => {
       if (!OBSTACLES.has(o.srType)) return;
-      const pad = CLEAR + (o.strokeWidth || 0) / 2;
+      const pad = BLOCK_PAD + (o.strokeWidth || 0) / 2;
       const r = o.getBoundingRect(true, true);
       const rotated = o.type === 'rect' && Math.abs(((o.angle || 0) % 90 + 90) % 90) > 1;
       if (!rotated) { rectCells(r, pad, (i) => { blocked[i] = 1; }); return; }

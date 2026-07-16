@@ -35,7 +35,10 @@ class ProcessingPipeline:
             'hough_max_gap': 20,
             'merge_angle_tol': 6,
             'merge_dist_tol': 30,
-            'merge_gap_tol': 70,
+            # 50, no más: un pasillo típico mide ~60px en el lienzo; con 70 la
+            # fusión de colineales unía la pared de arriba con la de abajo y el
+            # pasillo quedaba atravesado por muros fantasma (todo "sin salida").
+            'merge_gap_tol': 50,
             'extend_max': 400,
             'close_gap_tol': 55,
             'snap_grid': 12,

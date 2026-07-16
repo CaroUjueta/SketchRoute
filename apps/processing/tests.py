@@ -209,3 +209,23 @@ class JobStatusTests(TestCase):
         ProcessingJob.objects.create(plan=self.plan, status='processing')
         r = self.client.get(reverse('processing_status', args=[self.plan.pk]))
         self.assertEqual(r.json()['status'], 'processing')
+
+
+class RoutabilityTests(TestCase):
+    """La métrica que el usuario percibe: los recintos detectados deben poder
+    trazar ruta hasta la salida en el mismo modelo de grid del editor."""
+
+    def test_clinica_recintos_llegan_a_la_salida(self):
+        path = SKETCHES / 'clinica.png'
+        if not path.exists():
+            self.skipTest('qa/sketches/clinica.png no disponible')
+        import sys
+        sys.path.insert(0, str(SKETCHES.parent.parent))
+        from qa.routelib import routability
+        result = ProcessingPipeline().process(path)
+        self.assertTrue(result['success'])
+        ok, total = routability(result['canvas_data']['objects'])
+        # el fixture tiene UN recinto sin puerta dibujada (tabique inferior
+        # derecho): ese debe fallar y el resto llegar.
+        self.assertGreaterEqual(total, 7)
+        self.assertGreaterEqual(ok, total - 1, f'solo {ok}/{total} recintos con ruta')
