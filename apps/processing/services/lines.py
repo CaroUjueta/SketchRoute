@@ -997,6 +997,47 @@ def clamp_doors_to_junctions(door_segments, walls_h, walls_v, on_tol=20,
     return out
 
 
+def doors_from_arcs(door_mask, walls_h, walls_v, existing, reach=45,
+                    min_len=18, min_area=120):
+    """Puertas dibujadas como ARCO de apertura (estilo arquitectónico).
+
+    Un arco no produce trazo recto en Hough y la puerta se perdía. Cada
+    componente azul que no quedó cubierto por un segmento recto se proyecta
+    sobre la pared más cercana: la sombra del blob a lo largo del muro es el
+    hueco de la puerta. Devuelve (puertas_h, puertas_v)."""
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(door_mask, 8)
+    out_h, out_v = [], []
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            continue   # puntitos/ruido
+        x, y, w, h = (int(stats[i, c]) for c in
+                      (cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP,
+                       cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT))
+        cx, cy = cents[i]
+        if any(_point_seg_dist(cx, cy, s) < 30 for s in existing):
+            continue   # ya lo cubrió un trazo recto detectado
+        best = None    # (dist, seg, es_horizontal)
+        for s in walls_h:
+            wy = (s[1] + s[3]) / 2
+            ox1 = max(x, min(s[0], s[2])); ox2 = min(x + w, max(s[0], s[2]))
+            if ox2 - ox1 < min_len:
+                continue
+            dist = min(abs(wy - y), abs(wy - (y + h)))
+            if dist <= reach and (best is None or dist < best[0]):
+                best = (dist, [ox1, wy, ox2, wy], True)
+        for s in walls_v:
+            wx = (s[0] + s[2]) / 2
+            oy1 = max(y, min(s[1], s[3])); oy2 = min(y + h, max(s[1], s[3]))
+            if oy2 - oy1 < min_len:
+                continue
+            dist = min(abs(wx - x), abs(wx - (x + w)))
+            if dist <= reach and (best is None or dist < best[0]):
+                best = (dist, [wx, oy1, wx, oy2], False)
+        if best:
+            (out_h if best[2] else out_v).append(best[1])
+    return out_h, out_v
+
+
 def extend_free_ends_to_walls(segments, walls_h, walls_v, max_reach=80,
                               align_tol=18):
     """Extiende los extremos LIBRES de cada mueble hasta la pared colineal más

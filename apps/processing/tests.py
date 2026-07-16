@@ -319,3 +319,29 @@ class DeskewTests(TestCase):
             self.skipTest('qa/sketches/clinica.png no disponible')
         _, applied = deskew(cv2.imread(str(path)))
         self.assertEqual(applied, 0.0)
+
+
+class ArcDoorTests(TestCase):
+    """Puertas dibujadas como arco de apertura: el blob azul sin trazo recto
+    se proyecta sobre la pared más cercana como hueco."""
+
+    def test_arco_se_proyecta_sobre_pared(self):
+        import numpy as np
+        from .services.lines import doors_from_arcs
+        mask = np.zeros((400, 400), np.uint8)
+        import cv2
+        cv2.ellipse(mask, (200, 100), (60, 60), 0, 0, 90, 255, 3)  # arco pegado a pared y=100
+        walls_h = [[50, 100, 350, 100]]
+        h, v = doors_from_arcs(mask, walls_h, [], existing=[])
+        self.assertEqual(len(h), 1)
+        seg = h[0]
+        self.assertEqual(seg[1], 100)                       # sobre la pared
+        self.assertGreaterEqual(seg[2] - seg[0], 18)        # ancho útil
+
+    def test_blob_lejos_de_pared_se_ignora(self):
+        import numpy as np, cv2
+        from .services.lines import doors_from_arcs
+        mask = np.zeros((400, 400), np.uint8)
+        cv2.circle(mask, (200, 300), 30, 255, -1)           # a 170px de la pared
+        h, v = doors_from_arcs(mask, [[50, 100, 350, 100]], [], existing=[])
+        self.assertEqual((len(h), len(v)), (0, 0))

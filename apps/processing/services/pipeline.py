@@ -464,6 +464,22 @@ class ProcessingPipeline:
                                if lines._is_horizontal(np.array(s))]
             wall_segments_v = [s for s in snapped
                                if not lines._is_horizontal(np.array(s))]
+
+            # puertas dibujadas como ARCO (no trazo recto sobre el muro):
+            # proyectar cada blob azul restante sobre la pared más cercana.
+            arc_mask = masks.get('puerta', {}).get('binary')
+            if arc_mask is not None and cv2.countNonZero(arc_mask) > 0:
+                arc_h, arc_v = lines.doors_from_arcs(
+                    arc_mask, wall_segments_h, wall_segments_v,
+                    all_segments.get('puerta', []),
+                )
+                if arc_h or arc_v:
+                    all_segments.setdefault('puerta', []).extend(arc_h + arc_v)
+                    elem_styles.setdefault('puerta', {
+                        'sr_type': 'puerta', 'stroke': '#2563eb', 'stroke_width': 3,
+                    })
+                    debug['arc_doors'] = len(arc_h) + len(arc_v)
+
             for dtype in ('puerta', 'vano'):
                 if dtype not in all_segments:
                     continue
