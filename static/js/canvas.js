@@ -142,7 +142,8 @@ const SR = (() => {
           ensurePageBg();
           canvas.renderAll(); fit();
           state.loadingHistory = false;
-          explodeRouteGroups();
+          // Planos viejos con rutas auto como paths sueltos cargan tal cual;
+          // el primer "Generar" los reemplaza por grupos (clearRoutes cubre ambos).
           fixupManualArrows();
           fixupWallCaps();
           ensureHeader();
@@ -1180,9 +1181,9 @@ const SR = (() => {
     if (pts.length < 2) { canvas.requestRenderAll(); return; }
     const spec = ROUTE_KINDS[state.routeKind];
     const ortho = toOrtho(pts);
-    const parts = renderRoute(ortho, spec.color, spec.mode);
-    if (!parts) return;
-    const g = new fabric.Group(parts, { srType: 'ruta-' + spec.mode, srCat: 'ruta-manual' });
+    const g = renderRoute(ortho, spec.color, spec.mode);
+    if (!g) return;
+    g.set({ srCat: 'ruta-manual', srAuto: false });   // manual: sobrevive a "Generar" y es reclasificable
     withSuppress(() => canvas.add(g));
     canvas.setActiveObject(g);
     canvas.requestRenderAll();
@@ -1946,7 +1947,12 @@ const SR = (() => {
       srType: 'ruta-' + modeKey, srCat: 'ruta-auto',
     }));
 
-    return parts;
+    // Una ruta = UN grupo: clic selecciona la flecha completa (antes eran
+    // paths sueltos y el clic agarraba un solo tramo).
+    return new fabric.Group(parts, {
+      srType: 'ruta-' + modeKey, srCat: 'ruta-auto', srAuto: true,
+      subTargetCheck: false,
+    });
   }
 
   function clearRoutes(modeKey) {
@@ -1981,20 +1987,6 @@ const SR = (() => {
       srType: 'aviso-conexion', srCat: 'aviso', srHidden: true,
     });
     canvas.add(g);
-  }
-
-  // Convierte rutas guardadas como grupo (versión antigua) en flechas sueltas,
-  // para poder mover/borrar cada una por separado.
-  function explodeRouteGroups() {
-    canvas.getObjects().slice().forEach(o => {
-      if (o.type !== 'group' || o.srCat !== 'ruta-auto') return;
-      const srType = o.srType;
-      const children = o.getObjects();
-      o._restoreObjectsState();          // devuelve los hijos a coordenadas absolutas
-      canvas.remove(o);
-      children.forEach(ch => { ch.srType = srType; ch.srCat = 'ruta-auto'; if (ch.setCoords) ch.setCoords(); canvas.add(ch); });
-    });
-    canvas.requestRenderAll();
   }
 
   function generate(modeKey) {
@@ -2102,10 +2094,10 @@ const SR = (() => {
       const clean = smoothPathOrtho(pts, grid);
       // la flecha nace un poco separada del marcador/icono de origen, no en su centro exacto
       const trimmed = trimPathStart(clean, 16);
-      const arrows = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
-      if (!arrows) return;
-      arrows.forEach(a => canvas.add(a));
-      if (arrows.length) drawn++;
+      const arrow = renderRoute(trimmed, j.color, modeKey, { halo: collapsed });
+      if (!arrow) return;
+      canvas.add(arrow);
+      drawn++;
     });
 
     unreachable.forEach(c => markUnreachable(c));
@@ -2599,6 +2591,7 @@ const SR = (() => {
     setFont, setTextSize, toggleBold,
     duplicateSelected, setColor, setStrokeW, setOpacity, commitProps,
     bringFront, sendBack, setArrowKind, makeLegend, setRouteTool, setPlaceTool,
+    qaCanvas: () => canvas,   // solo para tests (qa/smoke_editor.py)
   };
 })();
 
