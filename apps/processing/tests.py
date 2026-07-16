@@ -345,3 +345,40 @@ class ArcDoorTests(TestCase):
         cv2.circle(mask, (200, 300), 30, 255, -1)           # a 170px de la pared
         h, v = doors_from_arcs(mask, [[50, 100, 350, 100]], [], existing=[])
         self.assertEqual((len(h), len(v)), (0, 0))
+
+
+class FotoRealDegradadaTests(TestCase):
+    """Condiciones de foto real (papel crema, cuadrícula, sombra diagonal,
+    rotación 4°, ruido) sobre un fixture con verdad conocida: la planta debe
+    seguir ruteando completa con sensibilidad automática."""
+
+    def test_farmacia_degradada_rutea_completa(self):
+        import cv2
+        import numpy as np
+        path = SKETCHES / 'farmacia.png'
+        if not path.exists():
+            self.skipTest('qa/sketches/farmacia.png no disponible')
+        img = cv2.imread(str(path)).astype(np.float32)
+        h, w = img.shape[:2]
+        for x in range(0, w, 24):
+            cv2.line(img, (x, 0), (x, h), (235, 215, 205), 1)
+        for y in range(0, h, 24):
+            cv2.line(img, (0, y), (w, y), (235, 215, 205), 1)
+        gx = np.linspace(1.0, 0.55, w, dtype=np.float32)
+        gy = np.linspace(1.0, 0.75, h, dtype=np.float32)
+        img *= (gy[:, None] * gx[None, :])[:, :, None]
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), 4, 1.0)
+        img = cv2.warpAffine(img, M, (w, h), borderValue=(200, 198, 192))
+        img += np.random.default_rng(7).normal(0, 4, img.shape).astype(np.float32)
+        import tempfile, os
+        tmp = os.path.join(tempfile.gettempdir(), 'sr_farmacia_degradada.png')
+        cv2.imwrite(tmp, np.clip(img, 0, 255).astype(np.uint8))
+
+        import sys
+        sys.path.insert(0, str(SKETCHES.parent.parent))
+        from qa.routelib import routability
+        res = ProcessingPipeline(config={'sensitivity': 'auto'}).process(tmp)
+        self.assertTrue(res['success'])
+        ok, total = routability(res['canvas_data']['objects'])
+        self.assertGreaterEqual(total, 2)
+        self.assertEqual(ok, total, f'{ok}/{total} recintos con ruta en foto degradada')
