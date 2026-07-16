@@ -255,3 +255,19 @@ class AutoSensitivityTests(TestCase):
         self.assertIn(res['debug']['sensitivity_chosen'], ('alta', 'media', 'baja'))
         self.assertGreater(res['quality_score'], 50)
         self.assertEqual(len(res['debug']['sensitivity_scores']), 3)
+
+
+class TJunctionGapTests(TestCase):
+    """Micro-gap en unión T: el extremo que no llega a la pared perpendicular
+    debe proyectarse sobre ella (lo hace close_gaps antes de detectar recintos)."""
+
+    def test_close_gaps_cierra_t_de_7px(self):
+        from .services.lines import close_gaps
+        segs = [
+            [0, 0, 300, 0], [0, 300, 300, 300],
+            [0, 0, 0, 300], [300, 0, 300, 300],
+            [0, 150, 293, 150],   # tabique que no llega por 7px
+        ]
+        out = close_gaps(segs, gap_tol=20)
+        t = next(s for s in out if s[1] == 150 and s[3] == 150)
+        self.assertEqual(max(t[0], t[2]), 300)
