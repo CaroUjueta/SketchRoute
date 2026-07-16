@@ -9,6 +9,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
+from django.utils import timezone
 
 from apps.plans.models import Plan
 from .models import ProcessingJob
@@ -17,6 +18,8 @@ from .services.preprocessing import drawing_legend
 from .services.overlay import render_canvas_preview_png
 
 logger = logging.getLogger(__name__)
+
+PIPELINE_TIMEOUT_S = 180   # si el job sigue en processing pasado esto, se marca failed
 
 SENSITIVITY_CHOICES = ('alta', 'media', 'baja')
 SENSITIVITY_LABELS = [
@@ -110,6 +113,11 @@ def _run_pipeline_threaded(plan_id, job_id, sensitivity):
         _run_pipeline(plan, job, sensitivity)
     except Exception:
         logger.exception('Error en el hilo de procesamiento (plan_id=%s)', plan_id)
+        # sin esto el job queda en 'processing' y el polling nunca termina
+        ProcessingJob.objects.filter(pk=job_id).update(
+            status='failed',
+            error_message='Error interno al procesar la imagen. Intenta de nuevo.',
+        )
     finally:
         close_old_connections()
 
@@ -140,6 +148,7 @@ def _run_pipeline(plan, job, sensitivity='media'):
         job.vector_data = {
             'sensitivity': sensitivity,
             'counts': counts,
+            'quality': quality_feedback(counts),
             'debug': _json_safe(result.get('debug', {})),
         }
         try:
@@ -157,6 +166,22 @@ def _run_pipeline(plan, job, sensitivity='media'):
         job.save()
 
     return result
+
+
+def quality_feedback(counts):
+    """Señales baratas de foto mala → mensajes accionables para el usuario.
+
+    No intenta medir calidad real de imagen; solo interpreta lo que el
+    pipeline logró (o no) detectar."""
+    reasons = []
+    if counts.get('paredes', 0) < 4:
+        reasons.append('Se detectaron muy pocas paredes — repasá los muros con trazo más grueso y oscuro.')
+    if counts.get('recintos', 0) == 0:
+        reasons.append('No se cerró ningún recinto — revisá que las paredes se toquen en las esquinas y que la foto no esté torcida o recortada.')
+    if counts.get('puertas', 0) == 0:
+        reasons.append('No se detectaron puertas — dibujalas en azul sobre la pared para que las rutas encuentren salida.')
+    level = 'buena' if not reasons else ('regular' if len(reasons) == 1 else 'mala')
+    return {'level': level, 'reasons': reasons}
 
 
 def _json_safe(obj):
@@ -179,6 +204,14 @@ def job_status(request, plan_pk):
     except ProcessingJob.DoesNotExist:
         return JsonResponse({'status': 'none', 'vectorized': plan.is_vectorized})
 
+    # timeout suave: un hilo colgado dejaría el job en processing para siempre
+    if job.status in ('pending', 'processing'):
+        age = (timezone.now() - job.updated_at).total_seconds()
+        if age > PIPELINE_TIMEOUT_S:
+            job.status = 'failed'
+            job.error_message = 'El procesamiento tardó demasiado. Probá con una foto más liviana.'
+            job.save(update_fields=['status', 'error_message'])
+
     data = {
         'status': job.status,
         'error': job.error_message,
@@ -187,6 +220,7 @@ def job_status(request, plan_pk):
     vd = job.vector_data or {}
     if job.status == 'completed':
         data['counts'] = vd.get('counts', {})
+        data['quality'] = vd.get('quality')
         if job.processed_image:
             data['overlay_url'] = job.processed_image.url
     return JsonResponse(data)

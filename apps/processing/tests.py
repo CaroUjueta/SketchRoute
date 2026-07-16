@@ -82,3 +82,130 @@ class OverlayTests(TestCase):
         img = render_canvas_preview(result['canvas_data'])
         # debe haber dibujado algo (no todo blanco)
         self.assertTrue((img != 255).any())
+
+
+class LinesRegressionTests(TestCase):
+    """Fija el comportamiento de los helpers geométricos de lines.py
+    (la parte más frágil del pipeline) con segmentos sintéticos."""
+
+    def test_merge_colinear_funde_horizontales_alineadas(self):
+        from .services.lines import merge_colinear
+        segs = [[0, 100, 50, 100], [60, 102, 120, 101]]   # mismo Y ± tolerancia
+        out = merge_colinear(segs, dist_tol=15, gap_tol=30, min_len=20)
+        self.assertEqual(len(out), 1)
+        x1, _, x2, _ = out[0]
+        self.assertEqual((min(x1, x2), max(x1, x2)), (0, 120))
+
+    def test_merge_colinear_no_funde_lejanas(self):
+        from .services.lines import merge_colinear
+        segs = [[0, 100, 50, 100], [0, 200, 50, 200]]     # Y muy distintos
+        out = merge_colinear(segs, dist_tol=15, gap_tol=30, min_len=20)
+        self.assertEqual(len(out), 2)
+
+    def test_snap_to_grid_redondea_a_la_grilla(self):
+        from .services.lines import snap_to_grid
+        out = snap_to_grid([[3, 7, 96, 104]], grid_size=10)
+        self.assertEqual(out, [[0, 10, 100, 100]])
+
+    def test_close_gaps_extiende_hasta_la_perpendicular(self):
+        from .services.lines import close_gaps
+        # horizontal termina a 10px de una vertical → debe extenderse hasta ella
+        h = [0, 100, 190, 100]
+        v = [200, 0, 200, 200]
+        out = close_gaps([h, v], gap_tol=20)
+        h_out = next(s for s in out if s[1] == s[3])
+        self.assertEqual(max(h_out[0], h_out[2]), 200)
+
+    def test_close_gaps_no_extiende_mas_alla_de_la_tolerancia(self):
+        from .services.lines import close_gaps
+        h = [0, 100, 150, 100]     # a 50px de la vertical, gap_tol=20
+        v = [200, 0, 200, 200]
+        out = close_gaps([h, v], gap_tol=20)
+        h_out = next(s for s in out if s[1] == s[3])
+        self.assertEqual(max(h_out[0], h_out[2]), 150)
+
+    def test_extend_to_intersections_cierra_esquina(self):
+        from .services.lines import extend_to_intersections
+        hs = [[10, 100, 180, 100]]
+        vs = [[200, 50, 200, 300]]
+        out_h, out_v = extend_to_intersections(hs, vs, max_extend=200)
+        self.assertEqual(max(out_h[0][0], out_h[0][2]), 200)
+
+
+class ClinicaInvariantTests(TestCase):
+    """Invariantes del fixture qa/sketches/clinica.png: si un refactor del
+    pipeline cambia estos conteos fuera de rango, es una regresión."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        path = SKETCHES / 'clinica.png'
+        cls.result = ProcessingPipeline().process(path) if path.exists() else None
+
+    def setUp(self):
+        if self.result is None:
+            self.skipTest('qa/sketches/clinica.png no disponible')
+
+    def test_conteos_dentro_de_rango(self):
+        r = self.result
+        self.assertTrue(r['success'], r.get('error'))
+        self.assertIn(r['walls'], range(7, 13), f"paredes={r['walls']}")
+        self.assertIn(r['doors'], range(4, 9), f"puertas={r['doors']}")
+        self.assertIn(r['rooms'], range(8, 13), f"recintos={r['rooms']}")
+
+    def test_todos_los_objetos_tienen_srtype(self):
+        objs = self.result['canvas_data']['objects']
+        self.assertTrue(objs)
+        self.assertTrue(all(o.get('srType') for o in objs))
+
+
+class QualityFeedbackTests(TestCase):
+    def test_deteccion_buena_sin_avisos(self):
+        from .views import quality_feedback
+        q = quality_feedback({'paredes': 9, 'puertas': 6, 'muebles': 0, 'recintos': 10})
+        self.assertEqual(q['level'], 'buena')
+        self.assertEqual(q['reasons'], [])
+
+    def test_sin_recintos_avisa(self):
+        from .views import quality_feedback
+        q = quality_feedback({'paredes': 9, 'puertas': 6, 'recintos': 0})
+        self.assertEqual(q['level'], 'regular')
+        self.assertEqual(len(q['reasons']), 1)
+
+    def test_foto_mala_multiples_avisos(self):
+        from .views import quality_feedback
+        q = quality_feedback({'paredes': 1, 'puertas': 0, 'recintos': 0})
+        self.assertEqual(q['level'], 'mala')
+        self.assertEqual(len(q['reasons']), 3)
+
+
+class JobStatusTests(TestCase):
+    """El polling nunca debe quedar colgado: jobs viejos en processing → failed."""
+
+    def setUp(self):
+        from apps.accounts.models import User
+        from apps.projects.models import Project
+        from apps.plans.models import Plan
+        self.user = User.objects.create_user(username='qa2', password='x')
+        proj = Project.objects.create(user=self.user, name='P', description='')
+        self.plan = Plan.objects.create(project=proj, name='plano')
+        self.client.force_login(self.user)
+
+    def test_job_processing_viejo_se_marca_failed(self):
+        from datetime import timedelta
+        from django.urls import reverse
+        from django.utils import timezone
+        from .models import ProcessingJob
+        job = ProcessingJob.objects.create(plan=self.plan, status='processing')
+        # updated_at es auto_now: se fuerza por queryset para simular un hilo colgado
+        ProcessingJob.objects.filter(pk=job.pk).update(
+            updated_at=timezone.now() - timedelta(seconds=600))
+        r = self.client.get(reverse('processing_status', args=[self.plan.pk]))
+        self.assertEqual(r.json()['status'], 'failed')
+
+    def test_job_processing_reciente_sigue_processing(self):
+        from django.urls import reverse
+        from .models import ProcessingJob
+        ProcessingJob.objects.create(plan=self.plan, status='processing')
+        r = self.client.get(reverse('processing_status', args=[self.plan.pk]))
+        self.assertEqual(r.json()['status'], 'processing')

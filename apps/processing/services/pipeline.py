@@ -57,6 +57,15 @@ class ProcessingPipeline:
 
             debug['input_shape'] = image.shape
 
+            # Normalizar resolución de entrada: fotos de celular (4000px+)
+            # solo agregan ruido y tiempo; los umbrales relativos de
+            # preprocessing siguen válidos a este tamaño.
+            MAX_INPUT_W = 2400
+            if image.shape[1] > MAX_INPUT_W:
+                scale = MAX_INPUT_W / image.shape[1]
+                image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                debug['downscaled_to'] = image.shape
+
             # ── Etapa 1: Corrección de perspectiva ────────────
             image = preprocessing.correct_perspective(image)
 

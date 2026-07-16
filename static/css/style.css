@@ -963,6 +963,16 @@ footer p {
 }
 .progress-overlay[hidden] { display: none; }
 .progress-error { color: var(--red); }
+.progress-quality {
+  text-align: left;
+  background: #fef9c3;
+  border: 1px solid #eab308;
+  border-radius: 8px;
+  padding: .8rem 1rem .8rem 1rem;
+  margin: 0 0 1rem;
+  font-size: .92rem;
+}
+.progress-quality ul { margin: .4rem 0 0 1.2rem; }
 .progress-actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
 
 .up-sensitivity-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-2); margin: 0.9rem 0 0.35rem; }

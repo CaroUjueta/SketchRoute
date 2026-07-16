@@ -12,6 +12,7 @@
   <div class="progress-card" id="pgDone" hidden>
     <h1>Vectorización completada</h1>
     <p id="pgCounts"></p>
+    <div id="pgQuality" class="progress-quality" hidden></div>
     <img id="pgOverlay" class="progress-overlay" alt="Vista previa de lo detectado">
     <div class="progress-actions">
       <a id="pgEditorLink" href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-primary">Abrir en el editor</a>
@@ -45,6 +46,12 @@
         const c = d.counts || {};
         document.getElementById('pgCounts').textContent =
           `${c.paredes || 0} paredes · ${c.puertas || 0} puertas · ${c.muebles || 0} muebles · ${c.recintos || 0} recintos detectados.`;
+        const q = document.getElementById('pgQuality');
+        if (d.quality && d.quality.reasons && d.quality.reasons.length) {
+          q.innerHTML = '<strong>⚠ La foto se puede mejorar:</strong><ul>' +
+            d.quality.reasons.map(r => `<li>${r}</li>`).join('') + '</ul>';
+          q.hidden = false;
+        } else { q.hidden = true; }
         const img = document.getElementById('pgOverlay');
         if (d.overlay_url) { img.src = d.overlay_url; img.hidden = false; } else { img.hidden = true; }
         return;
