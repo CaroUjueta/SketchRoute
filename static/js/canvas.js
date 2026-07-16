@@ -68,6 +68,30 @@ const SR = (() => {
 
   const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srAuto', 'srLen'];
 
+  // Silencia historial/autosave mientras corre fn; el finally garantiza que un
+  // throw no deje state.suppress colgado (historial congelado en silencio).
+  function withSuppress(fn) {
+    state.suppress = true;
+    try { return fn(); } finally { state.suppress = false; }
+  }
+
+  // Único punto de limpieza del estado transitorio: drafts a medias, previews,
+  // cadena de paredes, guías y pan. Se llama al cambiar de herramienta, con
+  // Escape y al perder el foco de la ventana — evita objetos y guías fantasma.
+  function resetTransient() {
+    if (state.draft) { withSuppress(() => canvas.remove(state.draft)); state.draft = null; }
+    clearRoutePreview();
+    state.routePts = [];
+    state.rDrag = false; state.rMoved = false; state.freePts = [];
+    endWallChain();
+    state.isDown = false;
+    state.suppress = false;
+    state.panning = false; state.spaceDown = false;
+    if (state.guides.length) { state.guides = []; canvas.clearContext(canvas.contextTop); }
+    applyToolFlags();
+    canvas.requestRenderAll();
+  }
+
   /* ── Inicialización ─────────────────────────────────────── */
 
   function init(savedData) {
@@ -106,6 +130,10 @@ const SR = (() => {
     canvas.on('selection:cleared', syncBars);
     bindUppercase();
     window.addEventListener('resize', fit);
+    // Al perder el foco (cambio de pestaña/ventana) el keyup de Space nunca
+    // llega y el pan quedaba pegado; también limpia drafts y guías fantasma.
+    window.addEventListener('blur', resetTransient);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetTransient(); });
 
     if (savedData) {
       state.loadingHistory = true;
@@ -159,9 +187,7 @@ const SR = (() => {
         hoverCursor: 'default', srCat: 'page',
         shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.35)', blur: 18, offsetY: 4 }),
       });
-      state.suppress = true;
-      canvas.add(bg);
-      state.suppress = false;
+      withSuppress(() => canvas.add(bg));
     }
     canvas.sendToBack(bg);
   }
@@ -196,11 +222,8 @@ const SR = (() => {
   /* ── Herramientas ───────────────────────────────────────── */
 
   function setTool(tool, btnEl) {
-    if (state.tool === 'ruta' && tool !== 'ruta') { clearRoutePreview(); state.routePts = []; }
-    if (state.tool === 'wall' && tool !== 'wall') endWallChain();
+    resetTransient();
     state.tool = tool;
-    state.isDown = false;
-    state.suppress = false;
     document.querySelectorAll('.ed-tool').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
     else if (tool === 'select') {
@@ -211,17 +234,10 @@ const SR = (() => {
     if (tool === 'erase') {
       const selected = canvas.getActiveObjects();
       if (selected.length > 0) {
-        state.suppress = true;
-        selected.forEach(o => canvas.remove(o));
-        state.suppress = false;
+        withSuppress(() => selected.forEach(o => canvas.remove(o)));
         canvas.discardActiveObject();
-        canvas.requestRenderAll();
         pushHistory();
         setStatus(`${selected.length} elemento(s) borrado(s)`);
-        canvas.selection = false;
-        canvas.skipTargetFind = false;
-        canvas.defaultCursor = 'crosshair';
-        return;
       }
     }
 
@@ -402,9 +418,7 @@ const SR = (() => {
       if (t === 'erase') {
         const active = canvas.getActiveObjects();
         if (active.length > 0) {
-          state.suppress = true;
-          active.forEach(o => canvas.remove(o));
-          state.suppress = false;
+          withSuppress(() => active.forEach(o => canvas.remove(o)));
           canvas.discardActiveObject();
           canvas.requestRenderAll();
           pushHistory();
@@ -490,13 +504,13 @@ const SR = (() => {
         let end = snapPoint(p0, collectEndpoints());
         if (end === p0) end = orthoSnap(state.chain, p0);
         clearWallPreview();
-        state.suppress = true;
-        state.wallPreview = new fabric.Line([state.chain.x, state.chain.y, end.x, end.y], {
-          stroke: '#94a3b8', strokeWidth: 3, strokeDashArray: [7, 6],
-          selectable: false, evented: false, srCat: 'temp',
+        withSuppress(() => {
+          state.wallPreview = new fabric.Line([state.chain.x, state.chain.y, end.x, end.y], {
+            stroke: '#94a3b8', strokeWidth: 3, strokeDashArray: [7, 6],
+            selectable: false, evented: false, srCat: 'temp',
+          });
+          canvas.add(state.wallPreview);
         });
-        canvas.add(state.wallPreview);
-        state.suppress = false;
         canvas.requestRenderAll();
         return;
       }
@@ -513,7 +527,7 @@ const SR = (() => {
               fill: 'transparent', stroke: spec.color, strokeWidth: 2, strokeDashArray: [6, 5],
               selectable: false, evented: false, srCat: 'temp', objectCaching: false,
             });
-            state.suppress = true; canvas.add(pl); state.suppress = false;
+            withSuppress(() => canvas.add(pl));
             state.routePreview = [pl];
             canvas.requestRenderAll();
           }
@@ -602,17 +616,17 @@ const SR = (() => {
         // Quirk de fabric.Line: la línea dibujada queda corrida strokeWidth/2
         // en el eje perpendicular (por eso las esquinas no casaban). Se
         // reconstruye anclada a su centro geométrico → extremos exactos.
-        state.suppress = true;
-        canvas.remove(d);
-        const nl = new fabric.Line([d.x1, d.y1, d.x2, d.y2], {
-          stroke: d.stroke, strokeWidth: d.strokeWidth, strokeLineCap: 'square',
-          srType: d.srType, srCat: d.srCat,
-          originX: 'center', originY: 'center',
-          left: (d.x1 + d.x2) / 2, top: (d.y1 + d.y2) / 2,
+        withSuppress(() => {
+          canvas.remove(d);
+          const nl = new fabric.Line([d.x1, d.y1, d.x2, d.y2], {
+            stroke: d.stroke, strokeWidth: d.strokeWidth, strokeLineCap: 'square',
+            srType: d.srType, srCat: d.srCat,
+            originX: 'center', originY: 'center',
+            left: (d.x1 + d.x2) / 2, top: (d.y1 + d.y2) / 2,
+          });
+          armWallControls(nl);
+          canvas.add(nl);
         });
-        armWallControls(nl);
-        canvas.add(nl);
-        state.suppress = false;
         if (t === 'wall') {
           state.chain = { x: d.x2, y: d.y2 };   // la siguiente continúa desde aquí
           clearWallPreview();
@@ -972,13 +986,16 @@ const SR = (() => {
       if (Math.abs(o.angle - snap) < 5) o.angle = ((snap % 360) + 360) % 360;
     });
 
-    canvas.on('mouse:up', () => {
+    const dropGuides = () => {
       if (state.guides.length) {
         state.guides = [];
         canvas.clearContext(canvas.contextTop);
         canvas.requestRenderAll();
       }
-    });
+    };
+    canvas.on('mouse:up', dropGuides);
+    // si el arrastre termina fuera del canvas, mouse:up nunca llega
+    canvas.upperCanvasEl.addEventListener('mouseleave', dropGuides);
 
     canvas.on('after:render', () => {
       if (!state.guides.length) {
@@ -1087,9 +1104,7 @@ const SR = (() => {
 
   function clearWallPreview() {
     if (!state.wallPreview) return;
-    state.suppress = true;
-    canvas.remove(state.wallPreview);
-    state.suppress = false;
+    withSuppress(() => canvas.remove(state.wallPreview));
     state.wallPreview = null;
   }
   function endWallChain() {
@@ -1099,9 +1114,7 @@ const SR = (() => {
   }
 
   function clearRoutePreview() {
-    state.suppress = true;
-    (state.routePreview || []).forEach(o => canvas.remove(o));
-    state.suppress = false;
+    withSuppress(() => (state.routePreview || []).forEach(o => canvas.remove(o)));
     state.routePreview = [];
   }
 
@@ -1118,9 +1131,7 @@ const SR = (() => {
         selectable: false, evented: false, srCat: 'temp',
       }));
     }
-    state.suppress = true;
-    segs.forEach(o => canvas.add(o));
-    state.suppress = false;
+    withSuppress(() => segs.forEach(o => canvas.add(o)));
     state.routePreview = segs;
     canvas.requestRenderAll();
   }
@@ -1172,9 +1183,7 @@ const SR = (() => {
     const parts = renderRoute(ortho, spec.color, spec.mode);
     if (!parts) return;
     const g = new fabric.Group(parts, { srType: 'ruta-' + spec.mode, srCat: 'ruta-manual' });
-    state.suppress = true;
-    canvas.add(g);
-    state.suppress = false;
+    withSuppress(() => canvas.add(g));
     canvas.setActiveObject(g);
     canvas.requestRenderAll();
     pushHistory();
@@ -1257,10 +1266,7 @@ const SR = (() => {
       top:  prev ? prev.top  : DOC.h - H - 26,
       scaleX: prev ? prev.scaleX : 1, scaleY: prev ? prev.scaleY : 1,
     });
-    state.suppress = true;
-    if (prev) canvas.remove(prev);
-    canvas.add(g);
-    state.suppress = false;
+    withSuppress(() => { if (prev) canvas.remove(prev); canvas.add(g); });
     canvas.requestRenderAll();
   }
 
@@ -1283,10 +1289,7 @@ const SR = (() => {
       top:  prev ? prev.top  : DOC.h - H - 26,
       scaleX: prev ? prev.scaleX : 1, scaleY: prev ? prev.scaleY : 1,
     });
-    state.suppress = true;
-    if (prev) canvas.remove(prev);
-    canvas.add(g);
-    state.suppress = false;
+    withSuppress(() => { if (prev) canvas.remove(prev); canvas.add(g); });
     canvas.requestRenderAll();
   }
 
@@ -1811,10 +1814,7 @@ const SR = (() => {
       scaleX: sy, scaleY: sy,
     });
     n.srType = o.srType; n.srCat = o.srCat;
-    state.suppress = true;
-    canvas.remove(o);
-    canvas.add(n);
-    state.suppress = false;
+    withSuppress(() => { canvas.remove(o); canvas.add(n); });
     n.setCoords();
     if (canvas.getActiveObject() === o || !canvas.getActiveObject()) canvas.setActiveObject(n);
     canvas.requestRenderAll();
@@ -2034,10 +2034,12 @@ const SR = (() => {
       jobs = canecas.map(o => ({ center: o.getCenterPoint(), color: CANECA_COLOR[o.srType] || '#dc2626' }));
     }
 
+    const unreachable = [];     // centros de orígenes/canecas sin ruta a la salida
+    let drawn = 0;
     state.suppress = true;
+    try {
     clearRoutes(modeKey);
     clearWarnings();
-    const unreachable = [];     // centros de orígenes/canecas sin ruta a la salida
     const grid = buildGrid();
     const cols = grid.cols;
     // meta = punto real de la salida + su celda libre más cercana (celda
@@ -2074,7 +2076,6 @@ const SR = (() => {
     });
 
     const usedColor = new Map();     // celda → color que la ocupa (fusión / evitar cruces)
-    let drawn = 0;
     prepared.forEach(j => {
       let cells = astar(grid, j.sCell, j.goalCell, usedColor);
       if (!cells || cells.length < 2) { unreachable.push(j.center); return; }
@@ -2108,8 +2109,7 @@ const SR = (() => {
     });
 
     unreachable.forEach(c => markUnreachable(c));
-
-    state.suppress = false;
+    } finally { state.suppress = false; }
     pushHistory();
     if (drawn && !unreachable.length) {
       setStatus(`${drawn} ruta(s) generada(s)`, 'ok');
@@ -2140,12 +2140,12 @@ const SR = (() => {
 
   // "Borrar todas las flechas": generadas + manuales.
   const clearAll = () => {
-    state.suppress = true;
-    canvas.getObjects()
-      .filter(o => o.srCat === 'ruta-auto' || o.srCat === 'ruta-manual')
-      .forEach(o => canvas.remove(o));
-    clearWarnings();
-    state.suppress = false;
+    withSuppress(() => {
+      canvas.getObjects()
+        .filter(o => o.srCat === 'ruta-auto' || o.srCat === 'ruta-manual')
+        .forEach(o => canvas.remove(o));
+      clearWarnings();
+    });
     canvas.discardActiveObject();
     canvas.requestRenderAll();
     pushHistory();
@@ -2154,11 +2154,7 @@ const SR = (() => {
 
   // Solo las generadas automáticamente (evac + sanitaria); las manuales quedan.
   const clearGenerated = () => {
-    state.suppress = true;
-    clearRoutes('evac');
-    clearRoutes('san');
-    clearWarnings();
-    state.suppress = false;
+    withSuppress(() => { clearRoutes('evac'); clearRoutes('san'); clearWarnings(); });
     canvas.discardActiveObject();
     canvas.requestRenderAll();
     pushHistory();
@@ -2178,17 +2174,17 @@ const SR = (() => {
   function pasteClipboard() {
     if (!clipboard) return;
     clipboard.clone((cl) => {
-      state.suppress = true;
-      canvas.discardActiveObject();
-      cl.set({ left: cl.left + 18, top: cl.top + 18 });
-      if (cl.type === 'activeSelection') {
-        cl.canvas = canvas;
-        cl.forEachObject(o => canvas.add(o));
-        cl.setCoords();
-      } else {
-        canvas.add(cl);
-      }
-      state.suppress = false;
+      withSuppress(() => {
+        canvas.discardActiveObject();
+        cl.set({ left: cl.left + 18, top: cl.top + 18 });
+        if (cl.type === 'activeSelection') {
+          cl.canvas = canvas;
+          cl.forEachObject(o => canvas.add(o));
+          cl.setCoords();
+        } else {
+          canvas.add(cl);
+        }
+      });
       clipboard.set({ left: cl.left, top: cl.top });   // pegados sucesivos en cascada
       canvas.setActiveObject(cl);
       canvas.requestRenderAll();
@@ -2201,17 +2197,17 @@ const SR = (() => {
     const ao = canvas.getActiveObject();
     if (!ao || ao.srCat === 'page') return;
     ao.clone((cl) => {
-      state.suppress = true;
-      canvas.discardActiveObject();
-      cl.set({ left: cl.left + 14, top: cl.top + 14 });
-      if (cl.type === 'activeSelection') {
-        cl.canvas = canvas;
-        cl.forEachObject(o => canvas.add(o));
-        cl.setCoords();
-      } else {
-        canvas.add(cl);
-      }
-      state.suppress = false;
+      withSuppress(() => {
+        canvas.discardActiveObject();
+        cl.set({ left: cl.left + 14, top: cl.top + 14 });
+        if (cl.type === 'activeSelection') {
+          cl.canvas = canvas;
+          cl.forEachObject(o => canvas.add(o));
+          cl.setCoords();
+        } else {
+          canvas.add(cl);
+        }
+      });
       canvas.setActiveObject(cl);
       canvas.requestRenderAll();
       pushHistory();
@@ -2222,9 +2218,7 @@ const SR = (() => {
   function deleteSelected() {
     const objs = canvas.getActiveObjects();
     if (!objs.length) return;
-    state.suppress = true;
-    objs.forEach(o => canvas.remove(o));
-    state.suppress = false;
+    withSuppress(() => objs.forEach(o => canvas.remove(o)));
     canvas.discardActiveObject();
     canvas.requestRenderAll();
     pushHistory();
@@ -2258,11 +2252,16 @@ const SR = (() => {
   // Antes de undo/redo hay que materializar el snapshot pendiente.
   function flushHistory() { if (histTimer) commitHistory(false); }
   function loadSnapshot(str) {
+    resetTransient();
     state.loadingHistory = true;
     canvas.loadFromJSON(JSON.parse(str), () => {
       ensurePageBg();   // la hoja no viaja en el snapshot (excludeFromExport)
       fixupManualArrows();
       fixupWallCaps();
+      // loadFromJSON no emite selection:cleared → las barras quedarían
+      // mostrando propiedades de un objeto que ya no existe.
+      canvas.discardActiveObject();
+      syncTextBar(); syncPropBar();
       canvas.renderAll();
       state.loadingHistory = false;
     });
@@ -2419,11 +2418,10 @@ const SR = (() => {
     const prevW = canvas.getWidth(), prevH = canvas.getHeight();
     canvas.setDimensions({ width: DOC.w, height: DOC.h });
     canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    state.suppress = true;   // los temporales del render no van al historial
-
     const { jsPDF } = window.jspdf;
     let pdf = null;
-    modes.forEach((mode) => {
+    // los temporales del render no van al historial
+    withSuppress(() => modes.forEach((mode) => {
       const { url, w, h } = renderPNG(mode);
       if (!pdf) pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [216, 330] });
       else pdf.addPage([216, 330], 'landscape');
@@ -2434,9 +2432,8 @@ const SR = (() => {
       let dw, dh;
       if (ia > pa) { dw = pw; dh = pw / ia; } else { dh = ph; dw = ph * ia; }
       pdf.addImage(url, 'PNG', (pw - dw) / 2, (ph - dh) / 2, dw, dh);
-    });
+    }));
 
-    state.suppress = false;
     canvas.setDimensions({ width: prevW, height: prevH });
     canvas.setViewportTransform(prevVpt);
     canvas.requestRenderAll();
