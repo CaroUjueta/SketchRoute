@@ -16,7 +16,15 @@
     <img id="pgOverlay" class="progress-overlay" alt="Vista previa de lo detectado">
     <div class="progress-actions">
       <a id="pgEditorLink" href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-primary">Abrir en el editor</a>
-      <a id="pgReprocessLink" href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-secondary">Reprocesar</a>
+      <span class="progress-reprocess">
+        <select id="pgSens" class="up-sensitivity" title="Sensibilidad para reprocesar">
+          <option value="auto" selected>Automática</option>
+          <option value="alta">Alta (trazos tenues)</option>
+          <option value="media">Media</option>
+          <option value="baja">Baja (menos ruido)</option>
+        </select>
+        <a id="pgReprocessLink" href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-secondary">Reprocesar</a>
+      </span>
     </div>
   </div>
 
@@ -24,7 +32,15 @@
     <h1>No se pudo vectorizar</h1>
     <p id="pgError" class="progress-error"></p>
     <div class="progress-actions">
-      <a href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-primary">Reintentar</a>
+      <span class="progress-reprocess">
+        <select id="pgSensFail" class="up-sensitivity" title="Sensibilidad para reintentar">
+          <option value="auto" selected>Automática</option>
+          <option value="alta">Alta (trazos tenues)</option>
+          <option value="media">Media</option>
+          <option value="baja">Baja (menos ruido)</option>
+        </select>
+        <a id="pgRetryLink" href="{% url 'reprocess_plan' plan_pk=plan.pk %}" class="btn btn-primary">Reintentar</a>
+      </span>
       <a href="{% url 'upload_image' plan_pk=plan.pk %}" class="btn btn-secondary">Subir otra foto</a>
       <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn">Ir al editor igual</a>
     </div>
@@ -39,13 +55,25 @@
   const done = document.getElementById('pgDone');
   const failed = document.getElementById('pgFailed');
 
+  // Reprocesar con la sensibilidad elegida en el selector
+  function wireReprocess(linkId, selId) {
+    const a = document.getElementById(linkId), s = document.getElementById(selId);
+    if (a && s) a.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location = a.href + '?sensitivity=' + encodeURIComponent(s.value);
+    });
+  }
+  wireReprocess('pgReprocessLink', 'pgSens');
+  wireReprocess('pgRetryLink', 'pgSensFail');
+
   function poll() {
     fetch(STATUS_URL).then(r => r.json()).then(d => {
       if (d.status === 'completed') {
         working.hidden = true; failed.hidden = true; done.hidden = false;
         const c = d.counts || {};
-        document.getElementById('pgCounts').textContent =
-          `${c.paredes || 0} paredes · ${c.puertas || 0} puertas · ${c.muebles || 0} muebles · ${c.recintos || 0} recintos detectados.`;
+        let txt = `${c.paredes || 0} paredes · ${c.puertas || 0} puertas · ${c.muebles || 0} muebles · ${c.recintos || 0} recintos detectados.`;
+        if (d.sensitivity) txt += ` (sensibilidad: ${d.sensitivity}${d.quality && d.quality.score ? ` · calidad ${Math.round(d.quality.score)}/100` : ''})`;
+        document.getElementById('pgCounts').textContent = txt;
         const q = document.getElementById('pgQuality');
         if (d.quality && d.quality.reasons && d.quality.reasons.length) {
           q.innerHTML = '<strong>⚠ La foto se puede mejorar:</strong><ul>' +

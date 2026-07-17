@@ -222,6 +222,9 @@ def job_status(request, plan_pk):
     if job.status == 'completed':
         data['counts'] = vd.get('counts', {})
         data['quality'] = vd.get('quality')
+        # con 'auto' interesa saber cuál preset ganó
+        data['sensitivity'] = (vd.get('debug', {}) or {}).get('sensitivity_chosen') \
+            or vd.get('sensitivity')
         if job.processed_image:
             data['overlay_url'] = job.processed_image.url
     return JsonResponse(data)

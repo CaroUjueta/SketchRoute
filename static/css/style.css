@@ -973,6 +973,8 @@ footer p {
   font-size: .92rem;
 }
 .progress-quality ul { margin: .4rem 0 0 1.2rem; }
+.progress-reprocess { display: inline-flex; gap: .5rem; align-items: center; }
+.progress-reprocess select { padding: .5rem; border: 1px solid #d1d5db; border-radius: 8px; }
 .progress-actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
 
 .up-sensitivity-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-2); margin: 0.9rem 0 0.35rem; }

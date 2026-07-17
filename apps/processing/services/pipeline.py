@@ -347,11 +347,13 @@ class ProcessingPipeline:
                             dist_tol=self.config['merge_dist_tol'],
                             gap_tol=self.config['merge_gap_tol'], min_len=seg_min_len,
                         )
-                        kept = lines.drop_isolated_segments(h + v, tol=25)
+                        kept = lines.drop_isolated_segments(h + v, tol=35)
                         h = [s for s in h if list(s) in [list(k) for k in kept]]
                         v = [s for s in v if list(s) in [list(k) for k in kept]]
-                        # quitar trazos que cuelgan → muebles como figuras limpias
-                        pruned = lines.prune_dangling(h + v, tol=22)
+                        # quitar trazos que cuelgan; min_keep_len bajo: los
+                        # muebles a mano son figuras ABIERTAS (mostradores en L,
+                        # estantes) y sus trazos cortos reales son parte de la figura
+                        pruned = lines.prune_dangling(h + v, tol=22, min_keep_len=28)
                         pk = [list(k) for k in pruned]
                         h = [s for s in h if list(s) in pk]
                         v = [s for s in v if list(s) in pk]
