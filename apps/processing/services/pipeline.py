@@ -465,6 +465,19 @@ class ProcessingPipeline:
             wall_segments_v = [s for s in snapped
                                if not lines._is_horizontal(np.array(s))]
 
+            # validar puertas/vanos contra su tinta real: el ruido (borde roto
+            # de la hoja, manchas) produce trazos fantasma dispersos que se
+            # fusionan en 'puertas' inexistentes sobre la pared.
+            for dtype in ('puerta', 'vano'):
+                m = masks.get(dtype, {}).get('binary')
+                if dtype in all_segments and m is not None:
+                    before = len(all_segments[dtype])
+                    all_segments[dtype] = lines.filter_segments_by_ink(
+                        all_segments[dtype], m,
+                    )
+                    if before != len(all_segments[dtype]):
+                        debug[f'{dtype}_sin_tinta'] = before - len(all_segments[dtype])
+
             # puertas dibujadas como ARCO (no trazo recto sobre el muro):
             # proyectar cada blob azul restante sobre la pared más cercana.
             arc_mask = masks.get('puerta', {}).get('binary')
@@ -580,30 +593,25 @@ class ProcessingPipeline:
         n, labels, stats, cents = cv2.connectedComponentsWithStats(door, 8)
         if n <= 1:
             return image, 0
-        # Voto ponderado por lado: cada puerta suficientemente exterior vota
-        # por el lado donde está, con peso área × exterioridad. Ante empate o
-        # mayoría débil (<50%) NO se rota: mejor dejar el plano como está que
-        # girarlo al lado equivocado por una puerta interior ancha.
+        # Voto ponderado por lado: cada puerta vota por el lado donde está,
+        # con peso área × exterioridad. SESGO deliberado: la entrada/salida
+        # principal SIEMPRE queda a la derecha — se rota hacia el lado más
+        # fuerte aunque la mayoría sea ajustada. Las puertas muy interiores
+        # pesan poco pero votan (si solo hay interiores, algo hay que elegir).
         side_w = {}
-        candidates = 0
         for i in range(1, n):
             area = stats[i, cv2.CC_STAT_AREA]
             if area < 30:
                 continue
             dcx, dcy = cents[i]
             outward = max(abs(dcx - bx) / half_w, abs(dcy - by) / half_h)  # 0=centro 1=borde
-            if outward < 0.5:
-                continue   # puerta interior: no es candidata a salida
-            candidates += 1
             dx, dy = dcx - bx, dcy - by
             side_i = ('right' if dx > 0 else 'left') if abs(dx) >= abs(dy) \
                 else ('bottom' if dy > 0 else 'top')
-            side_w[side_i] = side_w.get(side_i, 0.0) + area * (1.0 + 1.5 * outward)
+            side_w[side_i] = side_w.get(side_i, 0.0) + area * (0.3 + 1.7 * outward)
         if not side_w:
             return image, 0
         side = max(side_w, key=side_w.get)
-        if candidates >= 2 and side_w[side] < 0.5 * sum(side_w.values()):
-            return image, 0   # ambigua: no rotar
 
         # rotación para llevar ese lado a la derecha
         if side == 'right':

@@ -997,6 +997,33 @@ def clamp_doors_to_junctions(door_segments, walls_h, walls_v, on_tol=20,
     return out
 
 
+def filter_segments_by_ink(segs, mask, min_cover=0.5, band=5):
+    """Descarta segmentos sin respaldo de tinta real y continua en la máscara.
+
+    El ruido (borde roto de la hoja, manchas) produce fragmentos dispersos que
+    merge_colinear puede fundir en un 'trazo' largo inexistente. Un trazo real
+    es SÓLIDO: se muestrea a lo largo del segmento y se exige que ≥min_cover
+    de los puntos tengan tinta a ≤band px."""
+    if mask is None or not len(segs):
+        return segs
+    Hm, Wm = mask.shape[:2]
+    out = []
+    for s in segs:
+        x1, y1, x2, y2 = (int(v) for v in s)
+        n = max(int(np.hypot(x2 - x1, y2 - y1) // 4), 2)
+        hits = 0
+        for i in range(n + 1):
+            px = x1 + (x2 - x1) * i // n
+            py = y1 + (y2 - y1) * i // n
+            x0, xx = max(0, px - band), min(Wm, px + band + 1)
+            y0, yy = max(0, py - band), min(Hm, py + band + 1)
+            if x0 < xx and y0 < yy and mask[y0:yy, x0:xx].any():
+                hits += 1
+        if hits / (n + 1) >= min_cover:
+            out.append(s)
+    return out
+
+
 def doors_from_arcs(door_mask, walls_h, walls_v, existing, reach=45,
                     min_len=18, min_area=120):
     """Puertas dibujadas como ARCO de apertura (estilo arquitectónico).

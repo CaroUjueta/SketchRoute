@@ -558,6 +558,19 @@ def segment_by_color(bgr_image, sensitivity='media'):
         merged = cv2.bitwise_or(color_masks[elem_type], fb)
         merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, kernel, iterations=1)
         color_masks[elem_type] = denoise(merged)
+
+    # ── 1c. Vetar texturas del papel ─────────────────────────────
+    # Una máscara de color que cubre >4% de la hoja no son trazos: es la
+    # cuadrícula del cuaderno (celeste/verde pálido) colándose completa.
+    # Además de crear puertas/vanos fantasma, se resta de las paredes y
+    # las fragmenta. Se descarta esa máscara entera.
+    page_px = cv2.countNonZero(page) if page is not None else combined.size
+    for elem_type, m in color_masks.items():
+        if cv2.countNonZero(m) > 0.04 * max(page_px, 1):
+            color_masks[elem_type] = np.zeros_like(m)
+    colored_union = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+    for m in color_masks.values():
+        colored_union = cv2.bitwise_or(colored_union, m)
         colored_union = cv2.bitwise_or(colored_union, fb)
 
     # dilatar el color para que su borde no se cuele en las paredes

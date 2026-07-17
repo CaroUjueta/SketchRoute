@@ -382,3 +382,47 @@ class FotoRealDegradadaTests(TestCase):
         ok, total = routability(res['canvas_data']['objects'])
         self.assertGreaterEqual(total, 2)
         self.assertEqual(ok, total, f'{ok}/{total} recintos con ruta en foto degradada')
+
+
+class CuadernoRealTests(TestCase):
+    """Foto real de cuaderno cuadriculado (cuaderno1.jpg): la cuadrícula NO
+    debe colarse como vanos/puertas ni fragmentar paredes, y el plano queda
+    orientado con la entrada a la derecha."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        path = SKETCHES / 'cuaderno1.jpg'
+        cls.result = (ProcessingPipeline(config={'sensitivity': 'auto'})
+                      .process(path) if path.exists() else None)
+
+    def setUp(self):
+        if self.result is None:
+            self.skipTest('qa/sketches/cuaderno1.jpg no disponible')
+
+    def test_estructura_y_rutabilidad(self):
+        import sys
+        sys.path.insert(0, str(SKETCHES.parent.parent))
+        from qa.routelib import routability
+        r = self.result
+        self.assertTrue(r['success'])
+        self.assertGreaterEqual(r['rooms'], 2)
+        self.assertGreaterEqual(r['doors'], 3)
+        ok, total = routability(r['canvas_data']['objects'])
+        self.assertEqual(ok, total, f'{ok}/{total}')
+
+    def test_sin_vanos_fantasma_de_cuadricula(self):
+        objs = self.result['canvas_data']['objects']
+        vanos = [o for o in objs if o.get('srType') == 'vano']
+        self.assertLessEqual(len(vanos), 1)
+
+    def test_entrada_queda_a_la_derecha(self):
+        # el sesgo pedido: se rota hacia el lado con más puertas exteriores
+        self.assertIn(self.result['debug'].get('rotation'), (90, 180, 270, 0))
+        # la puerta más ancha (salida) debe estar en la mitad derecha del plano
+        from qa.routelib import bbox
+        doors = [o for o in self.result['canvas_data']['objects']
+                 if o.get('srType') in ('puerta', 'vano')]
+        doors.sort(key=lambda o: max(bbox(o)[2], bbox(o)[3]), reverse=True)
+        l, t, w, h = bbox(doors[0])
+        self.assertGreater(l + w / 2, 1320 / 2)
