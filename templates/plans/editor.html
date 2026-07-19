@@ -132,29 +132,7 @@
         </div>
       </div>
 
-      <!-- Puntos clave: colocar con un clic lo esencial del flujo -->
-      <div class="ed-section">
-        <div class="ed-section-hd" onclick="toggleSection(this)">
-          <span><i class="ed-dot ed-dot--green"></i>3 · Puntos clave</span><span class="ed-chevron">▾</span>
-        </div>
-        <div class="ed-section-bd">
-          <p class="ed-hint">Tocá el botón y luego el punto del plano.</p>
-          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('salida_emergencia', this)">
-            <span class="ed-marker ed-marker--evac"></span>
-            <span>Salida de emergencia</span>
-          </button>
-          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('entrada_salida', this)">
-            <span class="ed-marker ed-marker--evac"></span>
-            <span>Entrada / salida</span>
-          </button>
-          <button class="ed-tool ed-tool--wide" onclick="SR.setPlaceTool('punto_encuentro', this)">
-            <span class="ed-dot-route ed-dot-route--evac"></span>
-            <span>Punto de encuentro</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Evacuación -->
+      <!-- Evacuación: iconos + puntos clave, todo junto -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
           <span><i class="ed-dot ed-dot--green"></i>3 · Evacuación</span><span class="ed-chevron">▾</span>
@@ -173,6 +151,9 @@
             </div>
             <div class="ed-icon-item" draggable="true" data-type="salida_emergencia">
               <div class="ed-icon-preview" data-icon="salida_emergencia"></div><span>Salida Emerg.</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="entrada_salida">
+              <div class="ed-icon-preview" data-icon="entrada_salida"></div><span>Entrada/Salida</span>
             </div>
           </div>
         </div>
@@ -215,9 +196,6 @@
             <div class="ed-icon-item" draggable="true" data-type="bano">
               <div class="ed-icon-preview" data-icon="bano"></div><span>Baño / WC</span>
             </div>
-            <div class="ed-icon-item" draggable="true" data-type="entrada_salida">
-              <div class="ed-icon-preview" data-icon="entrada_salida"></div><span>Entrada/Salida</span>
-            </div>
             <div class="ed-icon-item" draggable="true" data-type="norte">
               <div class="ed-icon-preview" data-icon="norte"></div><span>Norte</span>
             </div>
@@ -239,7 +217,7 @@
           <span><i class="ed-dot ed-dot--green"></i>4 · Rutas automáticas</span><span class="ed-chevron">▾</span>
         </div>
         <div class="ed-section-bd">
-          <p class="ed-hint">Marcá desde dónde sale cada ruta (o dejalo vacío para partir del centro de cada recinto/caneca) y una salida en <b>3 · Puntos clave</b>. Luego generá.</p>
+          <p class="ed-hint">Marcá desde dónde sale cada ruta (o dejalo vacío para partir del centro de cada recinto/caneca) y una salida en <b>3 · Evacuación</b>. Luego generá.</p>
           <button class="ed-tool ed-tool--wide" onclick="SR.setTool('origen-evac', this)">
             <span class="ed-marker ed-marker--evac"></span>
             <span>Punto de partida (evacuación)</span>
