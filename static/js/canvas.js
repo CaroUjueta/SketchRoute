@@ -220,10 +220,31 @@ const SR = (() => {
   const zoomOut   = () => applyZoom(state.zoom / 1.15);
   const zoomReset = () => fit();
 
+  // Patrón de cuadrícula para la hoja (solo visual: excludeFromExport en la
+  // página → no sale en el PDF ni se guarda).
+  function gridPattern() {
+    const t = document.createElement('canvas');
+    t.width = t.height = GRID_SNAP_PX;
+    const c = t.getContext('2d');
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, t.width, t.height);
+    c.strokeStyle = '#dbeafe'; c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(0.5, 0); c.lineTo(0.5, t.height);
+    c.moveTo(0, 0.5); c.lineTo(t.width, 0.5);
+    c.stroke();
+    return new fabric.Pattern({ source: t, repeat: 'repeat' });
+  }
+
   function toggleGrid(btnEl) {
     state.gridSnap = !state.gridSnap;
     if (btnEl) btnEl.classList.toggle('active', state.gridSnap);
-    setStatus(state.gridSnap ? 'Snap a grilla activado' : 'Snap a grilla desactivado');
+    const bg = canvas.getObjects().find(o => o.srCat === 'page');
+    if (bg) {
+      bg.set('fill', state.gridSnap ? gridPattern() : '#ffffff');
+      bg.dirty = true;
+      canvas.requestRenderAll();
+    }
+    setStatus(state.gridSnap ? 'Cuadrícula activada (los objetos se enganchan a ella)' : 'Cuadrícula desactivada');
   }
 
   /* ── Herramientas ───────────────────────────────────────── */
