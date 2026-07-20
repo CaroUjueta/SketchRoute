@@ -117,8 +117,7 @@ SketchRoute/
 │
 ├── apps/
 │   ├── accounts/                # Registro / login / perfiles (User con phone/company)
-│   ├── projects/                # CRUD de proyectos
-│   ├── plans/                   # Modelo Plan + vista del editor
+│   ├── plans/                   # Modelo Plan (dueño = user) + vista del editor
 │   │   └── models.py            # Plan (imagen, escala, orientación, canvas_data…)
 │   ├── processing/              # ⭐ Pipeline de visión (servidor)
 │   │   ├── models.py            # ProcessingJob (estado, resultado)
@@ -159,9 +158,7 @@ SketchRoute/
 ```
 User (AbstractUser)  → phone, company
 
-Project              → user, name, description, created_at, updated_at
-
-Plan                 → project, name, original_image, scale (px/cm),
+Plan                 → user, name, original_image, scale (px/cm),
                        orientation, canvas_data (JSON Fabric.js),
                        is_vectorized, created_at, updated_at
 
@@ -169,6 +166,13 @@ ProcessingJob        → plan (1:1), status (pending/processing/completed/failed
                        processed_image, vector_data (JSON), error_message,
                        created_at, updated_at
 ```
+
+### Cuentas y visibilidad
+
+No importa de qué cuenta salió un plano: si sos **admin** en Systefarma podés
+ver cualquier ruta hecha por cualquier persona — todos los planos son
+públicos entre admins. Lo que sí importa de las cuentas es que **quede
+registrado quién lo hizo** (autoría), no restringir quién puede verlo.
 
 > Los modelos `EvacuationRoute` y `Signal` existen pero **no se usan**: el ruteo y la señalización ocurren en el cliente y se guardan dentro de `Plan.canvas_data`.
 
