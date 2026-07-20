@@ -8,11 +8,11 @@ class Plan(models.Model):
         ('vertical', 'Vertical'),
     ]
 
-    project = models.ForeignKey(
-        'projects.Project',
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='plans',
-        verbose_name='Proyecto',
+        verbose_name='Usuario',
     )
     name = models.CharField(max_length=255, verbose_name='Nombre del plano')
     original_image = models.ImageField(

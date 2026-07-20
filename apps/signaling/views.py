@@ -10,7 +10,7 @@ def auto_place_signals(request, plan_pk):
     SR.autoSignal() en static/js/canvas.js—, donde ya viven la grilla de
     ruteo y el sistema de iconos. Este endpoint queda como punto de
     integración futuro (p. ej. persistir las señales en el modelo Signal)."""
-    plan = Plan.objects.get(pk=plan_pk, project__user=request.user)
+    plan = Plan.objects.get(pk=plan_pk, user=request.user)
     return JsonResponse({
         'status': 'ok',
         'plan': plan.pk,

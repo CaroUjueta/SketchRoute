@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Mis Planos — SketchRoute{% endblock %}
+{% block content %}
+<div class="project-list">
+    <h1>Mis Planos</h1>
+    <form method="post" action="{% url 'plan_create' %}" class="new-plan-form">
+        {% csrf_token %}
+        <input type="text" name="name" placeholder="Nombre del nuevo plano (ej. Ruta de evacuación)" required>
+        <button type="submit" class="btn btn-primary">+ Crear plano</button>
+    </form>
+    {% if plans %}
+        <ul class="plan-list">
+            {% for plan in plans %}
+                <li>
+                    <div>
+                        <a href="{% url 'plan_editor' pk=plan.pk %}">{{ plan.name }}</a>
+                        <span class="meta">Editado: {{ plan.updated_at|date:"d/m/Y H:i" }}</span>
+                    </div>
+                    <div>
+                        <a href="{% url 'plan_editor' pk=plan.pk %}" class="btn btn-secondary">Abrir editor →</a>
+                        <form method="post" action="{% url 'plan_delete' pk=plan.pk %}" style="display:inline"
+                              onsubmit="return confirm('¿Eliminar &quot;{{ plan.name|escapejs }}&quot;? Esta acción no se puede deshacer.')">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-danger">Eliminar</button>
+                        </form>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="empty">No tienes planos aún. Crea uno para empezar.</p>
+    {% endif %}
+</div>
+{% endblock %}
