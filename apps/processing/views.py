@@ -37,7 +37,7 @@ def _clean_sensitivity(value):
 @login_required
 def upload_image(request, plan_pk):
     """Sube una imagen de croquis e inicia el pipeline en segundo plano."""
-    plan = get_object_or_404(Plan, pk=plan_pk, project__user=request.user)
+    plan = get_object_or_404(Plan, pk=plan_pk, user=request.user)
 
     if request.method == 'POST' and request.FILES.get('image'):
         plan.original_image = request.FILES['image']
@@ -70,7 +70,7 @@ def upload_image(request, plan_pk):
 @login_required
 def reprocess(request, plan_pk):
     """Re-ejecuta el pipeline sobre un plano ya existente, en segundo plano."""
-    plan = get_object_or_404(Plan, pk=plan_pk, project__user=request.user)
+    plan = get_object_or_404(Plan, pk=plan_pk, user=request.user)
 
     if not plan.original_image:
         messages.error(request, 'El plano no tiene una imagen de croquis.')
@@ -99,7 +99,7 @@ def reprocess(request, plan_pk):
 @login_required
 def progress_view(request, plan_pk):
     """Pantalla de progreso: hace polling a job_status hasta terminar."""
-    plan = get_object_or_404(Plan, pk=plan_pk, project__user=request.user)
+    plan = get_object_or_404(Plan, pk=plan_pk, user=request.user)
     return render(request, 'processing/progress.html', {'plan': plan})
 
 
@@ -199,7 +199,7 @@ def _json_safe(obj):
 def job_status(request, plan_pk):
     """Endpoint AJAX para la pantalla de progreso: estado + conteos/overlay
     cuando termina."""
-    plan = get_object_or_404(Plan, pk=plan_pk, project__user=request.user)
+    plan = get_object_or_404(Plan, pk=plan_pk, user=request.user)
     try:
         job = plan.processing_job
     except ProcessingJob.DoesNotExist:
