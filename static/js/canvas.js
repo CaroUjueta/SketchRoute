@@ -813,12 +813,25 @@ const SR = (() => {
   /* ── Encabezado del mapa (logo + título) ────────────────── */
 
   const drugName = () => (typeof PLAN_NAME !== 'undefined' && PLAN_NAME) ? PLAN_NAME : '';
+
+  const TITLE_FONT_SIZE = 38, TITLE_MAX_W = DOC.w - 200; // margen a cada lado, deja espacio al logo
+  let _titleMeasureCtx = null;
+  function textWidth(text) {
+    if (!_titleMeasureCtx) _titleMeasureCtx = document.createElement('canvas').getContext('2d');
+    _titleMeasureCtx.font = `bold ${TITLE_FONT_SIZE}px ${FONT_STACK}`;
+    return _titleMeasureCtx.measureText(text).width;
+  }
+
+  // Título en una sola línea si entra; si no, corta antes del nombre y lo
+  // baja a una segunda línea (el objeto es multilínea, así que crece hacia abajo).
   const titleFor = (mode) => {
-    const base = mode === 'evac' ? 'RUTA DE EVACUACIÓN'
+    const base = (mode === 'evac' ? 'RUTA DE EVACUACIÓN'
       : mode === 'san' ? 'RUTA SANITARIA'
-        : 'RUTA DE EVACUACIÓN / SANITARIA';
-    const n = drugName();
-    return (base + (n ? '  —  ' + n : '')).toUpperCase();
+        : 'RUTA DE EVACUACIÓN / SANITARIA').toUpperCase();
+    const n = drugName().toUpperCase();
+    if (!n) return base;
+    const oneLine = base + '  —  ' + n;
+    return textWidth(oneLine) <= TITLE_MAX_W ? oneLine : base + '\n' + n;
   };
 
   // Crea el encabezado (logo + título) si aún no existe.
