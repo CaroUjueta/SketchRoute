@@ -1826,7 +1826,7 @@ const SR = (() => {
       parts.push(new fabric.Path(`M ${x0} 0 L ${x1} 0`, opts));
       if (i < dashes.length - 1) parts.push(new fabric.Path(arrowHeadD({ x: x1, y: 0 }, { x: 1, y: 0 }, midHeadH), opts));
     });
-    parts.push(new fabric.Path(arrowHeadD({ x: xTip, y: 0 }, { x: 1, y: 0 }, ARROW_SIZE), opts));
+    parts.push(new fabric.Path(arrowHeadD({ x: xTip, y: 0 }, { x: 1, y: 0 }, midHeadH), opts));
 
     const g = new fabric.Group(parts, {
       originX: 'center',
@@ -1972,7 +1972,9 @@ const SR = (() => {
       // puntita intermedia, o la punta grande de salida en el último tramo
       const last = i === dashes.length - 1;
       parts.push(new fabric.Path(
-        last ? arrowHeadD(tipAt, tipDir, ARROW_SIZE) : arrowHeadD(seg.tip, seg.dir, midHeadH),
+        // misma cabeza en todas las flechas (antes la última era más grande
+        // y se veía inconsistente)
+        last ? arrowHeadD(tipAt, tipDir, midHeadH) : arrowHeadD(seg.tip, seg.dir, midHeadH),
         { ...stroke, stroke: color },
       ));
       return new fabric.Group(parts, {
