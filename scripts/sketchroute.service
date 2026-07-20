@@ -1,0 +1,17 @@
+# Referencia — copiar a /etc/systemd/system/sketchroute.service en el VPS,
+# luego: sudo systemctl daemon-reload && sudo systemctl enable --now sketchroute
+
+[Unit]
+Description=SketchRoute
+After=network.target postgresql.service
+
+[Service]
+User=ubuntu
+Group=adm
+WorkingDirectory=/home/ubuntu/sketchroute
+EnvironmentFile=/home/ubuntu/sketchroute/.env
+ExecStart=/home/ubuntu/sketchroute/venv/bin/gunicorn sketchroute.wsgi:application --bind 127.0.0.1:8002 --workers 2 --max-requests 500 --max-requests-jitter 50
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
