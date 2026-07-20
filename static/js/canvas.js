@@ -280,7 +280,8 @@ const SR = (() => {
     const t = state.tool;
     const drawing = t !== 'select';
     canvas.selection = !drawing;
-    canvas.skipTargetFind = drawing && t !== 'erase';
+    // en modo pared también se pueden seleccionar objetos existentes
+    canvas.skipTargetFind = drawing && t !== 'erase' && t !== 'wall';
     canvas.defaultCursor = t === 'erase' ? 'crosshair' : (drawing ? 'crosshair' : 'default');
   }
 
@@ -460,6 +461,10 @@ const SR = (() => {
         return;
       }
 
+      // modo pared: clic sobre un objeto existente lo selecciona en vez de
+      // dibujar encima (salvo que estés terminando una pared con clic-clic)
+      if (t === 'wall' && opt.target && opt.target.srCat !== 'page' && !state.chain) return;
+
       const p = canvas.getPointer(opt.e);
       // sticky tool: los objetos puntuales vuelven a Seleccionar tras colocar;
       // Shift sostenido mantiene la herramienta para colocar varios seguidos.
@@ -636,7 +641,7 @@ const SR = (() => {
         if (t === 'wall' && !state.chain) {
           // primer clic de una cadena de paredes
           state.chain = { x: d.x1, y: d.y1 };
-          setStatus('Pared encadenada: clic en el siguiente punto (Esc corta)');
+          setStatus('Clic en el punto final de la pared (Esc cancela)');
           return;
         }
         pushHistory();
@@ -659,8 +664,9 @@ const SR = (() => {
           canvas.add(nl);
         });
         if (t === 'wall') {
-          state.chain = { x: d.x2, y: d.y2 };   // la siguiente continúa desde aquí
-          clearWallPreview();
+          // cada pared es independiente: la próxima empieza donde el usuario
+          // haga clic, sin encadenarse al final de esta
+          endWallChain();
         }
       }
       pushHistory();
