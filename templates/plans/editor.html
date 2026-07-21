@@ -267,8 +267,8 @@
           <button class="ed-route-btn ed-route-btn--clear" onclick="SR.clearAll()">
             Borrar todas las flechas
           </button>
-          <button class="ed-tool ed-tool--wide" onclick="SR.makeLegend()" title="Cuadro de convenciones + datos del plano, según lo que haya en el dibujo">
-            Generar leyenda y cartela
+          <button class="ed-tool ed-tool--wide" onclick="SR.makeLegend()" title="Cuadro de convenciones, según lo que haya en el dibujo">
+            Generar leyenda
           </button>
         </div>
       </div>
@@ -384,7 +384,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=12"></script>
-<script src="{% static 'js/canvas.js' %}?v=38"></script>
+<script src="{% static 'js/canvas.js' %}?v=39"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
