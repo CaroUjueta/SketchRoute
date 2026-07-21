@@ -1865,8 +1865,8 @@ const SR = (() => {
   // forma entre una flecha suelta y un tramo de ruta auto-generada.
   function makeArrowShape(color, len) {
     const L = len || 72;                   // largo total de la flecha
-    const tipLen = ARROW_SIZE * 0.9;
     const midHeadH = ARROW_SIZE * 0.65;
+    const tipLen = midHeadH;                // ver nota en renderRoute: hueco = alcance real de la cabeza
     const xTip = L / 2, xStart = -L / 2;
     const { dashes, tipDir, tipAt } = segmentedPathParts(
       [{ x: xStart, y: 0 }, { x: xTip, y: 0 }], tipLen
@@ -2010,11 +2010,14 @@ const SR = (() => {
   // selecciona/mueve/borra por separado, no la ruta completa ni un path suelto.
   function renderRoute(points, color, modeKey, opts = {}) {
     if (points.length < 2) return null;
-    const tipLen = ARROW_SIZE * 0.9;
+    // el hueco reservado para la punta final debe ser EXACTAMENTE su alcance
+    // (midHeadH) — si es mayor, el trazo se queda corto y la cabeza flota
+    // separada del final de la raya en vez de quedar pegada.
+    const midHeadH = ARROW_SIZE * 0.65;
+    const tipLen = midHeadH;
     const { dashes, tipDir, tipAt } = segmentedPathParts(points, tipLen);
 
     const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
-    const midHeadH = ARROW_SIZE * 0.65;
     const stroke = {
       strokeWidth: lineWidth, fill: 'transparent',
       strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
