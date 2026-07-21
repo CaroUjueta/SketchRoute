@@ -1117,14 +1117,14 @@ const SR = (() => {
     if (ARROW_TYPES[type]) { addArrow(type, x, y); return; }
     if (type === 'logo_systefarma') {
       fabric.Image.fromURL(ICON_IMG[type], (img) => {
-        img.scaleToWidth(54);
+        img.scaleToWidth(78);
         img.set({ left: 0, top: 0, originX: 'center', originY: 'center' });
         img.clipPath = new fabric.Circle({
           radius: Math.min(img.width, img.height) / 2, originX: 'center', originY: 'center',
         });
         const label = new fabric.Text('SYSTEFARMA', {
-          left: 0, top: img.getScaledHeight() / 2 + 4, originX: 'center', originY: 'top',
-          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 11, fill: '#111827',
+          left: 0, top: img.getScaledHeight() / 2 + 5, originX: 'center', originY: 'top',
+          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 14, fill: '#111827',
         });
         const g = new fabric.Group([img, label], { left: x, top: y, originX: 'center', originY: 'center' });
         g.srType = type; g.srCat = 'icon';
@@ -1859,33 +1859,32 @@ const SR = (() => {
     return out;
   }
 
-  // Flecha manual (retoque): MISMO estilo que las rutas — tramos rectos con
-  // hueco, puntita en cada uno y punta grande al final — para que al soltarla
-  // junto a una ruta dibujada no se note la costura. Es un grupo de fabric.Path
-  // (línea recta local, se rota/traslada con el grupo).
+  // Flecha manual (retoque): usa EXACTAMENTE la misma función de troceado
+  // que las rutas generadas (segmentedPathParts + arrowHeadD, ver más abajo)
+  // sobre un segmento recto local, para que no haya ninguna diferencia de
+  // forma entre una flecha suelta y un tramo de ruta auto-generada.
   function makeArrowShape(color, len) {
     const L = len || 72;                   // largo total de la flecha
-    const tipLen = ARROW_SIZE * 0.9;
-    const xTip = L / 2, xStart = -L / 2;
-    const usable = Math.max(0, L - tipLen);
     const midHeadH = ARROW_SIZE * 0.65;
-    const dashes = [];
-    let start = 0;
-    while (start < usable - 0.5) {
-      const end = Math.min(start + SEGMENT_LEN, usable);
-      if (end - start < SEGMENT_LEN * 0.4 && dashes.length) break;
-      dashes.push([xStart + start, xStart + end]);
-      start = end + SEGMENT_GAP;
-    }
-    if (!dashes.length) dashes.push([xStart, xStart + usable]);
+    const tipLen = midHeadH;                // ver nota en renderRoute: hueco = alcance real de la cabeza
+    const xTip = L / 2, xStart = -L / 2;
+    const { dashes, tipDir, tipAt } = segmentedPathParts(
+      [{ x: xStart, y: 0 }, { x: xTip, y: 0 }], tipLen
+    );
 
     const opts = { stroke: color, strokeWidth: LINE_W, fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true };
     const parts = [];
-    dashes.forEach(([x0, x1], i) => {
-      parts.push(new fabric.Path(`M ${x0} 0 L ${x1} 0`, opts));
-      if (i < dashes.length - 1) parts.push(new fabric.Path(arrowHeadD({ x: x1, y: 0 }, { x: 1, y: 0 }, midHeadH), opts));
-    });
-    parts.push(new fabric.Path(arrowHeadD({ x: xTip, y: 0 }, { x: 1, y: 0 }, midHeadH), opts));
+    if (!dashes.length) {
+      // tramo demasiado corto para un hueco: una sola línea + punta (igual
+      // que renderRoute cuando la ruta completa no da para más de un dash)
+      parts.push(new fabric.Path(`M ${xStart} 0 L ${tipAt.x} ${tipAt.y}`, opts));
+    } else {
+      dashes.forEach((seg, i) => {
+        parts.push(new fabric.Path(seg.d, opts));
+        if (i < dashes.length - 1) parts.push(new fabric.Path(arrowHeadD(seg.tip, seg.dir, midHeadH), opts));
+      });
+    }
+    parts.push(new fabric.Path(arrowHeadD(tipAt, tipDir, midHeadH), opts));
 
     const g = new fabric.Group(parts, {
       originX: 'center',
@@ -2011,11 +2010,14 @@ const SR = (() => {
   // selecciona/mueve/borra por separado, no la ruta completa ni un path suelto.
   function renderRoute(points, color, modeKey, opts = {}) {
     if (points.length < 2) return null;
-    const tipLen = ARROW_SIZE * 0.9;
+    // el hueco reservado para la punta final debe ser EXACTAMENTE su alcance
+    // (midHeadH) — si es mayor, el trazo se queda corto y la cabeza flota
+    // separada del final de la raya en vez de quedar pegada.
+    const midHeadH = ARROW_SIZE * 0.65;
+    const tipLen = midHeadH;
     const { dashes, tipDir, tipAt } = segmentedPathParts(points, tipLen);
 
     const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
-    const midHeadH = ARROW_SIZE * 0.65;
     const stroke = {
       strokeWidth: lineWidth, fill: 'transparent',
       strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
