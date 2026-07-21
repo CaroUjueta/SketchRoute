@@ -1119,6 +1119,11 @@ const SR = (() => {
       fabric.Image.fromURL(ICON_IMG[type], (img) => {
         img.set({ left: x, top: y, originX: 'center', originY: 'center' });
         img.scaleToWidth(54);
+        if (type === 'logo_systefarma') {
+          img.clipPath = new fabric.Circle({
+            radius: Math.min(img.width, img.height) / 2, originX: 'center', originY: 'center',
+          });
+        }
         img.srType = type; img.srCat = 'icon';
         canvas.add(img);
         backToSelect();

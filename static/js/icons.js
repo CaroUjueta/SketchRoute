@@ -13,6 +13,7 @@ const ICON_IMG = {
   caneca_reciclable:  '/static/img/fotos/caneca_reciclable.jpeg',
   caneca_biosani:     '/static/img/fotos/caneca_biosani.jpeg',
   caneca_corto:       '/static/img/fotos/caneca_corto.jpg',
+  logo_systefarma:    '/static/img/logo.png',
 };
 
 const SR_ICONS = {
@@ -26,6 +27,7 @@ const SR_ICONS = {
   caneca_reciclable: 'img',
   caneca_biosani: 'img',
   caneca_corto: 'img',
+  logo_systefarma: 'img',
 
   /* ─── FLECHAS MANUALES (iguales a las generadas, por color) ─────
      Preview = línea + triángulo en el color de ruta. El objeto real del
@@ -101,7 +103,8 @@ const SR_ICONS = {
           fill="#f8fafc" stroke="#475467" stroke-width="2"/>
     <ellipse cx="32" cy="27" rx="18" ry="4" fill="#eef2f7" stroke="#475467" stroke-width="2"/>
     <ellipse cx="32" cy="34" rx="9" ry="4" fill="#dbe3ee"/>
-    <path d="M32 18 v-4 M27 14 h10" stroke="#475467" stroke-width="2.4" stroke-linecap="round"/>
+    <line x1="27" y1="14" x2="37" y2="14" stroke="#475467" stroke-width="2.4" stroke-linecap="round"/>
+    <line x1="32" y1="14" x2="32" y2="18" stroke="#475467" stroke-width="2.4" stroke-linecap="round"/>
     <circle cx="32" cy="12" r="1.8" fill="#475467"/>
   </svg>`,
 
