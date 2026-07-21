@@ -60,12 +60,6 @@
     <!-- ── SIDEBAR ─────────────────────────────────────────── -->
     <aside class="ed-sidebar">
 
-      <!-- 0 · Marca -->
-      <div class="ed-brand">
-        <img src="{% static 'img/logo.png' %}" alt="Systefarma">
-        <span>systefarma</span>
-      </div>
-
       <!-- 1 · Vectorización de croquis -->
       <div class="ed-section">
         <div class="ed-section-hd" onclick="toggleSection(this)">
@@ -204,6 +198,9 @@
             </div>
             <div class="ed-icon-item" draggable="true" data-type="lavamanos">
               <div class="ed-icon-preview" data-icon="lavamanos"></div><span>Lavamanos</span>
+            </div>
+            <div class="ed-icon-item" draggable="true" data-type="logo_systefarma">
+              <div class="ed-icon-preview ed-icon-preview--round" data-icon="logo_systefarma"></div><span>Logo Systefarma</span>
             </div>
             <div class="ed-icon-item" draggable="true" data-type="norte">
               <div class="ed-icon-preview" data-icon="norte"></div><span>Norte</span>
@@ -387,7 +384,7 @@
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
 <script src="{% static 'js/icons.js' %}?v=11"></script>
-<script src="{% static 'js/canvas.js' %}?v=31"></script>
+<script src="{% static 'js/canvas.js' %}?v=32"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
