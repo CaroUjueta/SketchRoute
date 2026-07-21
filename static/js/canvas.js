@@ -1115,15 +1115,30 @@ const SR = (() => {
 
   function addIcon(type, x, y) {
     if (ARROW_TYPES[type]) { addArrow(type, x, y); return; }
-    if (ICON_IMG[type]) {
+    if (type === 'logo_systefarma') {
+      fabric.Image.fromURL(ICON_IMG[type], (img) => {
+        img.scaleToWidth(54);
+        img.set({ left: 0, top: 0, originX: 'center', originY: 'center' });
+        img.clipPath = new fabric.Circle({
+          radius: Math.min(img.width, img.height) / 2, originX: 'center', originY: 'center',
+        });
+        const label = new fabric.Text('SYSTEFARMA', {
+          left: 0, top: img.getScaledHeight() / 2 + 4, originX: 'center', originY: 'top',
+          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 11, fill: '#111827',
+        });
+        const g = new fabric.Group([img, label], { left: x, top: y, originX: 'center', originY: 'center' });
+        g.srType = type; g.srCat = 'icon';
+        canvas.add(g);
+        backToSelect();
+        canvas.setActiveObject(g);
+        canvas.requestRenderAll();
+        pushHistory();
+        setStatus('Elemento agregado');
+      }, { crossOrigin: 'anonymous' });
+    } else if (ICON_IMG[type]) {
       fabric.Image.fromURL(ICON_IMG[type], (img) => {
         img.set({ left: x, top: y, originX: 'center', originY: 'center' });
         img.scaleToWidth(54);
-        if (type === 'logo_systefarma') {
-          img.clipPath = new fabric.Circle({
-            radius: Math.min(img.width, img.height) / 2, originX: 'center', originY: 'center',
-          });
-        }
         img.srType = type; img.srCat = 'icon';
         canvas.add(img);
         backToSelect();
