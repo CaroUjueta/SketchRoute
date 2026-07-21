@@ -881,7 +881,7 @@ const SR = (() => {
 
     // logo real + "systefarma" debajo — solo si no hay ya uno en el plano
     if (!find('logo')) {
-      buildLogoGroup(72, 12, (g) => {
+      buildLogoGroup(96, 15, (g) => {
         g.set({ left: 28, top: 12, originX: 'left', originY: 'top', srType: 'logo', srCat: 'marca' });
         canvas.add(g);
         canvas.requestRenderAll();
@@ -1328,19 +1328,19 @@ const SR = (() => {
     setStatus('Ruta dibujada — cada flecha se mueve o borra por separado', 'ok');
   }
 
-  /* ── Leyenda automática + cartela ───────────────────────── */
+  /* ── Leyenda automática ──────────────────────────────────── */
 
   const LEGEND_LABELS = {
     extintor: 'Extintor', botiquin: 'Botiquín', punto_encuentro: 'Punto de encuentro',
-    salida_emergencia: 'Salida de emergencia', entrada_salida: 'Entrada / Salida',
-    camilla: 'Camilla', bano: 'Baño', norte: 'Norte',
-    caneca_ordinaria: 'Caneca ordinaria (negra)', caneca_reciclable: 'Caneca reciclable (blanca)',
-    caneca_biosani: 'Caneca biosanitaria (roja)', caneca_corto: 'Caneca cortopunzantes',
+    salida_emergencia: 'Salida', entrada_salida: 'Entrada / Salida',
+    camilla: 'Camilla', bano: 'Baño', lavamanos: 'Lavamanos', norte: 'Norte',
+    caneca_ordinaria: 'Ordinaria', caneca_reciclable: 'Reciclable',
+    caneca_biosani: 'Biosanitaria', caneca_corto: 'Cortopunzantes',
   };
   const SAN_ARROW_LABEL = {
-    '#111827': 'Ruta sanitaria — ordinaria',
-    '#9ca3af': 'Ruta sanitaria — reciclable',
-    '#dc2626': 'Ruta sanitaria — biosanitaria',
+    '#111827': 'Ordinaria',
+    '#9ca3af': 'Reciclable',
+    '#dc2626': 'Biosanitaria',
   };
 
   function loadThumb(type) {
@@ -1360,20 +1360,20 @@ const SR = (() => {
     Object.keys(LEGEND_LABELS).forEach(t => {
       if (all.some(o => o.srType === t)) rows.push({ type: t, label: LEGEND_LABELS[t] });
     });
-    if (all.some(o => o.srType === 'ruta-evac')) rows.push({ arrow: EVAC_COLOR, label: 'Ruta de evacuación' });
+    if (all.some(o => o.srType === 'ruta-evac')) rows.push({ arrow: EVAC_COLOR, label: 'Evacuación' });
     [...new Set(all.filter(o => o.srType === 'ruta-san').map(o => o.stroke))].forEach(c => {
-      if (c) rows.push({ arrow: c, label: SAN_ARROW_LABEL[c] || 'Ruta sanitaria' });
+      if (c) rows.push({ arrow: c, label: SAN_ARROW_LABEL[c] || 'Sanitaria' });
     });
     if (!rows.length) { setStatus('No hay elementos para la leyenda todavía', 'warn'); return; }
 
     const prev = all.find(o => o.srType === 'leyenda');
-    const PADX = 14, ROW_H = 30, ICON = 24, TITLE_H = 34, W = 268;
+    const PADX = 14, ROW_H = 34, ICON = 26, TITLE_H = 36, W = 230;
     const H = TITLE_H + rows.length * ROW_H + 10;
     const parts = [
       new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1.5 }),
       new fabric.Text('CONVENCIONES', {
         left: W / 2, top: 10, originX: 'center', fontFamily: FONT_STACK,
-        fontSize: 14, fontWeight: 'bold', fill: '#111827',
+        fontSize: 16, fontWeight: 'bold', fill: '#111827',
       }),
     ];
     for (let i = 0; i < rows.length; i++) {
@@ -1395,7 +1395,7 @@ const SR = (() => {
       }
       parts.push(new fabric.Text(r.label, {
         left: PADX + ICON + 10, top: cy, originY: 'center',
-        fontFamily: FONT_STACK, fontSize: 12.5, fill: '#111827',
+        fontFamily: FONT_STACK, fontSize: 15, fill: '#111827',
       }));
     }
     const g = new fabric.Group(parts, {
@@ -1408,34 +1408,10 @@ const SR = (() => {
     canvas.requestRenderAll();
   }
 
-  // Cartela: datos del documento (abajo-izquierda).
-  function buildCartela() {
-    const prev = canvas.getObjects().find(o => o.srType === 'cartela');
-    const name = drugName() || (typeof PROJECT_NAME !== 'undefined' ? PROJECT_NAME : '');
-    const who = (typeof USER_NAME !== 'undefined' && USER_NAME) ? USER_NAME : '____________';
-    const hoy = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const lines = [name.toUpperCase(), 'Fecha de elaboración: ' + hoy, 'Elaborado por: ' + who];
-    const W = 300, H = 20 + lines.length * 22;
-    const parts = [new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1.5 })];
-    lines.forEach((t, i) => parts.push(new fabric.Text(t, {
-      left: 12, top: 12 + i * 22, fontFamily: FONT_STACK,
-      fontSize: i === 0 ? 14 : 12.5, fontWeight: i === 0 ? 'bold' : 'normal', fill: '#111827',
-    })));
-    const g = new fabric.Group(parts, {
-      srType: 'cartela', srCat: 'marca',
-      left: prev ? prev.left : 26,
-      top:  prev ? prev.top  : DOC.h - H - 26,
-      scaleX: prev ? prev.scaleX : 1, scaleY: prev ? prev.scaleY : 1,
-    });
-    withSuppress(() => { if (prev) canvas.remove(prev); canvas.add(g); });
-    canvas.requestRenderAll();
-  }
-
   async function makeLegend() {
     await buildLegend();
-    buildCartela();
     pushHistory();
-    setStatus('Leyenda y cartela generadas — puedes moverlas', 'ok');
+    setStatus('Leyenda generada — podés moverla', 'ok');
   }
 
   /* ════════════ GENERADOR DE RUTAS (A* + fusión) ═══════════ */
@@ -2555,8 +2531,8 @@ const SR = (() => {
     if (canvas.getObjects().some(o => o.srType === 'leyenda')) {
       try { await buildLegend(); } catch (e) { console.error('leyenda:', e); }
     }
-    // leyenda y cartela siempre DENTRO de la hoja en el PDF
-    ['leyenda', 'cartela'].forEach(t => {
+    // leyenda siempre DENTRO de la hoja en el PDF
+    ['leyenda'].forEach(t => {
       const o = canvas.getObjects().find(x => x.srType === t);
       if (!o) return;
       const r = o.getBoundingRect(true, true);
