@@ -288,7 +288,7 @@
               <div class="ed-icon-preview" data-icon="flecha_negra"></div><span>Caneca negra</span>
             </div>
             <div class="ed-icon-item" draggable="true" data-type="flecha_gris">
-              <div class="ed-icon-preview" data-icon="flecha_gris"></div><span>Caneca gris</span>
+              <div class="ed-icon-preview" data-icon="flecha_gris"></div><span>Caneca reciclable</span>
             </div>
             <div class="ed-icon-item" draggable="true" data-type="flecha_roja">
               <div class="ed-icon-preview" data-icon="flecha_roja"></div><span>Caneca roja</span>
@@ -383,8 +383,8 @@
 
 {% block extra_scripts %}
 {{ plan.canvas_data|json_script:"plan-data" }}
-<script src="{% static 'js/icons.js' %}?v=12"></script>
-<script src="{% static 'js/canvas.js' %}?v=41"></script>
+<script src="{% static 'js/icons.js' %}?v=13"></script>
+<script src="{% static 'js/canvas.js' %}?v=42"></script>
 <script>
   const PLAN_ID      = {{ plan.id }};
   const PLAN_NAME    = "{{ plan.name|escapejs }}";
