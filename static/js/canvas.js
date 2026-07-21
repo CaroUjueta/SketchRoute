@@ -812,6 +812,51 @@ const SR = (() => {
 
   /* ── Encabezado del mapa (logo + título) ────────────────── */
 
+  // Recorta el logo en círculo UNA vez sobre un canvas offscreen del mismo
+  // tamaño que el PNG original (358×358) y lo cachea como data URL. Antes se
+  // aplicaba un clipPath circular en vivo sobre la imagen dentro del grupo:
+  // fabric cachea los objetos con clipPath en un canvas offscreen dimensionado
+  // según el zoom del momento, así que al hacer zoom después se veía
+  // pixelado. Con el círculo ya "horneado" en la imagen, no hace falta
+  // clipPath y se ve nítido a cualquier zoom, igual que el resto de iconos.
+  let _circularLogoURL = null;
+  function getCircularLogoURL(cb) {
+    if (_circularLogoURL) { cb(_circularLogoURL); return; }
+    const src = new Image();
+    src.crossOrigin = 'anonymous';
+    src.onload = () => {
+      const size = Math.max(src.width, src.height);
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(src, (size - src.width) / 2, (size - src.height) / 2);
+      _circularLogoURL = c.toDataURL('image/png');
+      cb(_circularLogoURL);
+    };
+    src.src = '/static/img/logo.png';
+  }
+
+  // Arma el grupo logo redondo + "SYSTEFARMA" debajo, reutilizado tanto para
+  // soltarlo como ícono desde el panel como para el encabezado automático de
+  // un plano nuevo.
+  function buildLogoGroup(widthPx, fontSize, cb) {
+    getCircularLogoURL((url) => {
+      fabric.Image.fromURL(url, (img) => {
+        img.scaleToWidth(widthPx);
+        img.set({ left: 0, top: 0, originX: 'center', originY: 'center' });
+        const label = new fabric.Text('SYSTEFARMA', {
+          left: 0, top: img.getScaledHeight() / 2 + 5, originX: 'center', originY: 'top',
+          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize, fill: '#111827',
+        });
+        cb(new fabric.Group([img, label]));
+      }, { crossOrigin: 'anonymous' });
+    });
+  }
+
   const drugName = () => (typeof PLAN_NAME !== 'undefined' && PLAN_NAME) ? PLAN_NAME : '';
 
   const TITLE_FONT_SIZE = 38, TITLE_MAX_W = DOC.w - 200; // margen a cada lado, deja espacio al logo
@@ -840,14 +885,13 @@ const SR = (() => {
     const cx = DOC.w / 2;
     const find = (t) => canvas.getObjects().find(o => o.srType === t);
 
-    // logo real — solo si no hay ya uno en el plano
+    // logo real + "systefarma" debajo — solo si no hay ya uno en el plano
     if (!find('logo')) {
-      fabric.Image.fromURL('/static/img/logo.png', (img) => {
-        img.set({ left: 28, top: 12, originX: 'left', originY: 'top', srType: 'logo', srCat: 'marca' });
-        img.scaleToWidth(72);
-        canvas.add(img);
+      buildLogoGroup(72, 12, (g) => {
+        g.set({ left: 28, top: 12, originX: 'left', originY: 'top', srType: 'logo', srCat: 'marca' });
+        canvas.add(g);
         canvas.requestRenderAll();
-      }, { crossOrigin: 'anonymous' });
+      });
     }
 
     // título del plano: centrado arriba. Si no existe, se crea con el nombre de
@@ -1116,17 +1160,8 @@ const SR = (() => {
   function addIcon(type, x, y) {
     if (ARROW_TYPES[type]) { addArrow(type, x, y); return; }
     if (type === 'logo_systefarma') {
-      fabric.Image.fromURL(ICON_IMG[type], (img) => {
-        img.scaleToWidth(78);
-        img.set({ left: 0, top: 0, originX: 'center', originY: 'center' });
-        img.clipPath = new fabric.Circle({
-          radius: Math.min(img.width, img.height) / 2, originX: 'center', originY: 'center',
-        });
-        const label = new fabric.Text('SYSTEFARMA', {
-          left: 0, top: img.getScaledHeight() / 2 + 5, originX: 'center', originY: 'top',
-          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 14, fill: '#111827',
-        });
-        const g = new fabric.Group([img, label], { left: x, top: y, originX: 'center', originY: 'center' });
+      buildLogoGroup(78, 14, (g) => {
+        g.set({ left: x, top: y, originX: 'center', originY: 'center' });
         g.srType = type; g.srCat = 'icon';
         canvas.add(g);
         backToSelect();
@@ -1134,7 +1169,7 @@ const SR = (() => {
         canvas.requestRenderAll();
         pushHistory();
         setStatus('Elemento agregado');
-      }, { crossOrigin: 'anonymous' });
+      });
     } else if (ICON_IMG[type]) {
       fabric.Image.fromURL(ICON_IMG[type], (img) => {
         img.set({ left: x, top: y, originX: 'center', originY: 'center' });
