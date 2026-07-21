@@ -1597,6 +1597,22 @@ const SR = (() => {
     return true;
   }
 
+  // Descarta vértices pegados al anterior (deja el primero y el último):
+  // orthogonalizePath a veces mete un codo minúsculo justo en un giro, que
+  // segmentedPathParts/arrowHeadD dibuja como una muesca — un tramo casi sin
+  // largo con una cabeza de flecha degenerada — en vez de un giro limpio.
+  function dropTinySegments(pts, minLen) {
+    if (pts.length < 3) return pts;
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const last = out[out.length - 1];
+      if (Math.hypot(pts[i].x - last.x, pts[i].y - last.y) < minLen) continue;
+      out.push(pts[i]);
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
   // Devuelve { pts, collapsed }. El desfase de carril SIEMPRE se ortogonaliza
   // (las rutas van solo en ángulos rectos, nunca en diagonal); si no valida,
   // reintenta con un desfase menor antes de resignarse a 0 —así dos rutas que
@@ -1611,7 +1627,7 @@ const SR = (() => {
       // cual produciría un codo por cada micro-tramo (mini-escalera). Se reduce
       // primero con Douglas-Peucker para que quede un codo limpio por giro real.
       const reduced = rdp(shifted, 3);
-      const ortho = orthogonalizePath(reduced, grid);
+      const ortho = dropTinySegments(orthogonalizePath(reduced, grid) || [], 10);
       if (routePointsClear(ortho, grid)) return { pts: ortho, collapsed: factor < 0.99 };
     }
     return { pts: base, collapsed: true };
