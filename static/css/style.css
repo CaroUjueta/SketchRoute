@@ -37,7 +37,7 @@
   /* Colores de rutas (compartidos por editor.css, editor.html y canvas.js) */
   --ruta-evac:       #16a34a;
   --ruta-ordinaria:  #111827;
-  --ruta-reciclable: #9ca3af;
+  --ruta-reciclable: #ffffff;
   --ruta-biosani:    #dc2626;
 
   --shadow:    0 2px 8px rgba(0,0,0,.08);

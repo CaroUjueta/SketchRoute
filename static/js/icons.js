@@ -44,8 +44,9 @@ const SR_ICONS = {
   </svg>`,
 
   flecha_gris:  `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-    <line x1="8" y1="32" x2="44" y2="32" stroke="#9ca3af" stroke-width="6" stroke-linecap="round"/>
-    <polygon points="58,32 42,41 42,23" fill="#9ca3af"/>
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#111827" stroke-width="8" stroke-linecap="round"/>
+    <line x1="8" y1="32" x2="44" y2="32" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <polygon points="58,32 42,41 42,23" fill="#ffffff" stroke="#111827" stroke-width="2"/>
   </svg>`,
 
   flecha_roja:  `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">

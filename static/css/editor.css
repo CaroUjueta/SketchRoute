@@ -423,7 +423,7 @@
 .ed-dot-route { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .ed-dot-route--evac       { background: var(--ruta-evac); }
 .ed-dot-route--ordinaria  { background: var(--ruta-ordinaria); }
-.ed-dot-route--reciclable { background: var(--ruta-reciclable); }
+.ed-dot-route--reciclable { background: var(--ruta-reciclable); box-shadow: 0 0 0 1px var(--border-2); }
 .ed-dot-route--biosani    { background: var(--ruta-biosani); }
 
 /* Botones de reclasificar flecha (propBar) */

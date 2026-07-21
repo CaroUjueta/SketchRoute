@@ -33,19 +33,26 @@ const EVAC_COLOR = '#16a34a';
 const FONT_STACK = "'Century Gothic', Jost, Futura, 'Trebuchet MS', sans-serif";
 
 // Color de la flecha según el tipo de caneca.
+const RECICLABLE_COLOR = '#ffffff';   // blanca de verdad — ver isWhiteArrow() para el contorno
 const CANECA_COLOR = {
   caneca_ordinaria:  '#111827',  // negra
-  caneca_reciclable: '#9ca3af',  // blanca → gris (para que se vea)
+  caneca_reciclable: RECICLABLE_COLOR,
   caneca_biosani:    '#dc2626',  // roja
   caneca_corto:      '#dc2626',  // roja
 };
+
+// Una flecha blanca sin contorno es invisible sobre la hoja blanca: se le
+// agrega un trazo oscuro de fondo (ver renderRoute/makeArrowShape) SIEMPRE,
+// no solo cuando hay halo por superposición.
+const isWhiteArrow = (color) => (color || '').toLowerCase() === '#ffffff' || (color || '').toLowerCase() === '#fff';
+const WHITE_OUTLINE = '#111827';
 
 // Flechas manuales del sidebar: idénticas a las que genera el programa, en cada
 // color de ruta. Se arrastran y rotan para reemplazar una flecha mal generada.
 const ARROW_TYPES = {
   flecha_evac:  { color: '#16a34a', mode: 'evac' },  // verde (evacuación)
   flecha_negra: { color: '#111827', mode: 'san'  },  // caneca ordinaria
-  flecha_gris:  { color: '#9ca3af', mode: 'san'  },  // caneca reciclable
+  flecha_gris:  { color: RECICLABLE_COLOR, mode: 'san'  },  // caneca reciclable (blanca)
   flecha_roja:  { color: '#dc2626', mode: 'san'  },  // biosani / cortopunzantes
 };
 
@@ -150,6 +157,7 @@ const SR = (() => {
           // Planos viejos con rutas auto como paths sueltos cargan tal cual;
           // el primer "Generar" los reemplaza por grupos (clearRoutes cubre ambos).
           splitLegacyRouteGroups();
+          migrateReciclableColor();
           fixupManualArrows();
           fixupWallCaps();
           ensureHeader();
@@ -937,6 +945,39 @@ const SR = (() => {
     }
   }
 
+  // Migra flechas "reciclable" guardadas con el gris viejo (#9ca3af) al
+  // blanco real, agregando el contorno oscuro que las hace visibles sobre
+  // la hoja (blanco sin contorno = invisible). Reconstruye cada tramo
+  // gris con un Path hermano (mismo path/transform, solo el trazo cambia)
+  // insertado justo antes para que quede detrás.
+  function migrateReciclableColor() {
+    const OLD_GRAY = '#9ca3af';
+    canvas.getObjects().forEach(o => {
+      if (o.type !== 'group') return;
+      if (o.srCat !== 'ruta-auto' && o.srCat !== 'ruta-manual') return;
+      const kids = o.getObjects();
+      if (!kids.some(k => k.stroke === OLD_GRAY)) return;
+      const newKids = [];
+      kids.forEach(k => {
+        if (k.stroke === OLD_GRAY) {
+          newKids.push(new fabric.Path(k.path, {
+            left: k.left, top: k.top, angle: k.angle || 0,
+            scaleX: k.scaleX, scaleY: k.scaleY, originX: k.originX, originY: k.originY,
+            stroke: WHITE_OUTLINE, strokeWidth: (k.strokeWidth || LINE_W) + 2,
+            fill: 'transparent', strokeLineCap: k.strokeLineCap, strokeLineJoin: k.strokeLineJoin,
+            strokeUniform: true,
+          }));
+          k.set('stroke', RECICLABLE_COLOR);
+        }
+        newKids.push(k);
+      });
+      o._objects = newKids;
+      o.dirty = true;
+      if (o.srCat === 'ruta-manual') o.srColor = RECICLABLE_COLOR;
+    });
+    canvas.requestRenderAll();
+  }
+
   // Mantiene en MAYÚSCULAS el título y la marca aunque se editen a mano.
   function bindUppercase() {
     canvas.on('text:changed', (e) => {
@@ -1043,21 +1084,26 @@ const SR = (() => {
   }
 
   // Fase 2: reclasificar una flecha manual (evacuación ↔ sanitaria por color).
+  // Se reconstruye entera vía makeArrowShape (como bakeArrowStretch) en vez de
+  // recolorear los hijos en el lugar: si el nuevo color es blanco (reciclable)
+  // hace falta agregar el contorno oscuro, y si se sale del blanco hace falta
+  // quitarlo — parchar strokes uno por uno no puede cambiar cuántos hijos tiene.
   function setArrowKind(k) {
     const spec = ARROW_TYPES[k];
     const o = canvas.getActiveObject();
     if (!spec || !o || o.srCat !== 'ruta-manual') return;
     if (o.type === 'group') {
-      // ruta dibujada: recolorear todos los tramos y actualizar su tipo
-      o.forEachObject(ch => {
-        ch.set('stroke', spec.color);
-        if (ch.fill && ch.fill !== 'transparent') ch.set('fill', spec.color);
-        ch.srType = 'ruta-' + spec.mode;
-      });
+      const len = o.srLen || SEGMENT_LEN;
+      const n = makeArrowShape(spec.color, len);
+      n.set({ left: o.left, top: o.top, angle: o.angle || 0, scaleX: o.scaleX, scaleY: o.scaleY });
+      n.srType = 'ruta-' + spec.mode; n.srCat = 'ruta-manual';
+      withSuppress(() => { canvas.remove(o); canvas.add(n); });
+      n.setCoords();
+      canvas.setActiveObject(n);
     } else {
       o.set({ stroke: spec.color, fill: spec.color });
+      o.srType = 'ruta-' + spec.mode;
     }
-    o.srType = 'ruta-' + spec.mode;
     canvas.requestRenderAll(); pushHistory();
     setStatus(spec.mode === 'evac' ? 'Flecha → ruta de evacuación' : 'Flecha → ruta sanitaria');
   }
@@ -1226,7 +1272,7 @@ const SR = (() => {
   const ROUTE_KINDS = {
     evac:       { color: '#16a34a', mode: 'evac' },
     ordinaria:  { color: '#111827', mode: 'san' },
-    reciclable: { color: '#9ca3af', mode: 'san' },
+    reciclable: { color: RECICLABLE_COLOR, mode: 'san' },
     biosani:    { color: '#dc2626', mode: 'san' },
   };
 
@@ -1343,7 +1389,7 @@ const SR = (() => {
   };
   const SAN_ARROW_LABEL = {
     '#111827': 'Ordinaria',
-    '#9ca3af': 'Reciclable',
+    [RECICLABLE_COLOR]: 'Reciclable',
     '#dc2626': 'Biosanitaria',
   };
 
@@ -1896,16 +1942,24 @@ const SR = (() => {
       [{ x: xStart, y: 0 }, { x: xTip, y: 0 }], tipLen
     );
 
+    const white = isWhiteArrow(color);
+    const outlineOpts = { stroke: WHITE_OUTLINE, strokeWidth: LINE_W + 2, fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true };
     const opts = { stroke: color, strokeWidth: LINE_W, fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true };
     const parts = [];
     if (!dashes.length) {
       // tramo demasiado corto para un hueco: una sola línea + punta (igual
       // que renderRoute cuando la ruta completa no da para más de un dash)
-      parts.push(new fabric.Path(`M ${xStart} 0 L ${tipAt.x} ${tipAt.y}`, opts));
+      const d = `M ${xStart} 0 L ${tipAt.x} ${tipAt.y}`;
+      const headD = arrowHeadD(tipAt, tipDir, midHeadH);
+      if (white) parts.push(new fabric.Path(d + ' ' + headD, outlineOpts));
+      parts.push(new fabric.Path(d, opts));
     } else {
       dashes.forEach((seg, i) => {
+        const last = i === dashes.length - 1;
+        const headD = last ? arrowHeadD(tipAt, tipDir, midHeadH) : arrowHeadD(seg.tip, seg.dir, midHeadH);
+        if (white) parts.push(new fabric.Path(seg.d + ' ' + headD, outlineOpts));
         parts.push(new fabric.Path(seg.d, opts));
-        if (i < dashes.length - 1) parts.push(new fabric.Path(arrowHeadD(seg.tip, seg.dir, midHeadH), opts));
+        if (!last) parts.push(new fabric.Path(headD, opts));
       });
     }
     parts.push(new fabric.Path(arrowHeadD(tipAt, tipDir, midHeadH), opts));
@@ -1922,6 +1976,7 @@ const SR = (() => {
     // laterales = estirar el largo (se hornea en bakeArrowStretch); sin verticales
     g.setControlsVisibility({ mt: false, mb: false });
     g.srLen = L;
+    g.srColor = color;   // color real — con blanco, _objects[0] es el contorno, no el color
     return g;
   }
 
@@ -1931,7 +1986,9 @@ const SR = (() => {
     const sx = Math.abs(o.scaleX || 1), sy = Math.abs(o.scaleY || 1);
     if (Math.abs(sx - sy) < 0.01) return;     // escala uniforme: nada que corregir
     const newLen = Math.max(28, (o.srLen || SEGMENT_LEN) * sx / sy);
-    const color = o.stroke || (o._objects && o._objects[0] && o._objects[0].stroke) || EVAC_COLOR;
+    const color = o.srColor || o.stroke
+      || (o._objects && o._objects.find(ch => ch.stroke !== WHITE_OUTLINE) || {}).stroke
+      || EVAC_COLOR;
     const n = makeArrowShape(color, newLen);
     n.set({
       left: o.left, top: o.top, angle: o.angle || 0,
@@ -2046,24 +2103,33 @@ const SR = (() => {
     const { dashes, tipDir, tipAt } = segmentedPathParts(points, tipLen);
 
     const lineWidth = opts.halo ? Math.max(2, LINE_W - 1) : LINE_W;
+    const white = isWhiteArrow(color);
     const stroke = {
       strokeWidth: lineWidth, fill: 'transparent',
       strokeLineCap: 'round', strokeLineJoin: 'round', strokeUniform: true,
     };
     const arrows = dashes.map((seg, i) => {
       const parts = [];
-      if (opts.halo) {
+      // blanca de verdad = invisible sobre la hoja: contorno oscuro SIEMPRE,
+      // en vez del halo blanco que solo se usa para distinguir superposición.
+      if (opts.halo && !white) {
         parts.push(new fabric.Path(seg.d, {
           ...stroke, stroke: '#ffffff', strokeWidth: LINE_W + 4, opacity: 0.85,
         }));
       }
+      const last = i === dashes.length - 1;
+      const headD = last ? arrowHeadD(tipAt, tipDir, midHeadH) : arrowHeadD(seg.tip, seg.dir, midHeadH);
+      if (white) {
+        // un solo Path combinando tramo+cabeza (2 subtrazos) para no romper
+        // el conteo de hijos por flecha que asume splitLegacyRouteGroups
+        parts.push(new fabric.Path(seg.d + ' ' + headD, { ...stroke, stroke: WHITE_OUTLINE, strokeWidth: lineWidth + 2 }));
+      }
       parts.push(new fabric.Path(seg.d, { ...stroke, stroke: color }));
       // puntita intermedia, o la punta grande de salida en el último tramo
-      const last = i === dashes.length - 1;
       parts.push(new fabric.Path(
         // misma cabeza en todas las flechas (antes la última era más grande
         // y se veía inconsistente)
-        last ? arrowHeadD(tipAt, tipDir, midHeadH) : arrowHeadD(seg.tip, seg.dir, midHeadH),
+        headD,
         { ...stroke, stroke: color },
       ));
       return new fabric.Group(parts, {
@@ -2116,7 +2182,7 @@ const SR = (() => {
       if (o.type !== 'group') return;
       if (o.srCat !== 'ruta-auto' && o.srCat !== 'ruta-manual') return;
       const kids = o.getObjects();
-      const hasHalo = kids.length && kids[0].stroke === '#ffffff';
+      const hasHalo = kids.length && (kids[0].stroke === '#ffffff' || kids[0].stroke === WHITE_OUTLINE);
       const per = hasHalo ? 3 : 2;
       if (kids.length <= per) return;              // ya es una sola flecha
       if (kids.length % per !== 0) return;         // estructura desconocida: no tocar
