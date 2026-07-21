@@ -96,6 +96,15 @@ const SR_ICONS = {
     <ellipse cx="32" cy="30" rx="6.5" ry="7.5" fill="#dbe3ee"/>
   </svg>`,
 
+  lavamanos: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14 26 H50 a2 2 0 0 1 2 2 c0 12 -8 20 -18 20 c-10 0 -18 -8 -18 -20 a2 2 0 0 1 2 -2 z"
+          fill="#f8fafc" stroke="#475467" stroke-width="2"/>
+    <ellipse cx="32" cy="27" rx="18" ry="4" fill="#eef2f7" stroke="#475467" stroke-width="2"/>
+    <ellipse cx="32" cy="34" rx="9" ry="4" fill="#dbe3ee"/>
+    <path d="M32 18 v-4 M27 14 h10" stroke="#475467" stroke-width="2.4" stroke-linecap="round"/>
+    <circle cx="32" cy="12" r="1.8" fill="#475467"/>
+  </svg>`,
+
   entrada_salida: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
     <rect x="13" y="10" width="38" height="44" rx="2" fill="none" stroke="#475467" stroke-width="2.4"/>
     <rect x="13" y="10" width="19" height="44" rx="1" fill="#eef2f7" stroke="#475467" stroke-width="2"/>

@@ -869,6 +869,23 @@ const SR = (() => {
     if (titulo && /CenturyGothic/.test(titulo.fontFamily || '')) {
       titulo.set('fontFamily', FONT_STACK);
     }
+
+    // Jost carga async por Google Fonts (editor.html): si todavía no estaba
+    // lista cuando se midió arriba, el corte de línea pudo calcularse con
+    // una fuente fallback distinta a la que termina pintándose (título
+    // "cortado" al crear un plano nuevo). Recalcular una vez que carga.
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => {
+        const t = find('titulo');
+        if (!t || /PLANO VECTORIZADO/i.test(t.text || '')) return;
+        const fixed = titleFor(null);
+        if (fixed !== t.text) {
+          t.set({ text: fixed, left: cx });
+          t.setCoords && t.setCoords();
+          canvas.requestRenderAll();
+        }
+      });
+    }
   }
 
   // Mantiene en MAYÚSCULAS el título y la marca aunque se editen a mano.
@@ -1560,29 +1577,16 @@ const SR = (() => {
     return true;
   }
 
-  // Como routePointsClear pero acepta tramos en cualquier ángulo (no solo
-  // H/V) — necesario para validar un desfase de carril aplicado sobre un
-  // tramo diagonal sin forzarlo de vuelta a ortogonal.
-  function pathClear(pts, grid) {
-    if (!pts || pts.length < 2) return false;
-    for (let i = 1; i < pts.length; i++) {
-      if (!losClear(grid, pts[i - 1], pts[i])) return false;
-    }
-    return true;
-  }
-
-  // Devuelve { pts, collapsed }. Primero intenta el desfase de carril TAL
-  // CUAL (conserva diagonales si el tramo ya las traía del string-pulling);
-  // si no valida, cae a forzar ortogonal (comportamiento previo); si tampoco
-  // valida, reintenta con un desfase menor antes de resignarse a 0 —así dos
-  // rutas que comparten pasillo angosto no vuelven a quedar 100% pegadas.
+  // Devuelve { pts, collapsed }. El desfase de carril SIEMPRE se ortogonaliza
+  // (las rutas van solo en ángulos rectos, nunca en diagonal); si no valida,
+  // reintenta con un desfase menor antes de resignarse a 0 —así dos rutas que
+  // comparten pasillo angosto no vuelven a quedar 100% pegadas.
   // `collapsed` avisa al renderer que dibuje con halo para distinguirlas.
   function buildSafeRoutePoints(basePts, lane, grid, doorCenters) {
     const base = densify(basePts, 22);
     if (!lane) return { pts: base, collapsed: false };
     for (const factor of [1, 0.6, 0.3]) {
       const shifted = offsetPath(base, lane * factor, grid, doorCenters);
-      if (pathClear(shifted, grid)) return { pts: shifted, collapsed: factor < 0.99 };
       // `shifted` viene densificado (un punto cada ~22px): ortogonalizar eso tal
       // cual produciría un codo por cada micro-tramo (mini-escalera). Se reduce
       // primero con Douglas-Peucker para que quede un codo limpio por giro real.
