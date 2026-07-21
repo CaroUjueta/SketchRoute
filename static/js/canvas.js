@@ -859,24 +859,18 @@ const SR = (() => {
 
   const drugName = () => (typeof PLAN_NAME !== 'undefined' && PLAN_NAME) ? PLAN_NAME : '';
 
-  const TITLE_FONT_SIZE = 38, TITLE_MAX_W = DOC.w - 200; // margen a cada lado, deja espacio al logo
-  let _titleMeasureCtx = null;
-  function textWidth(text) {
-    if (!_titleMeasureCtx) _titleMeasureCtx = document.createElement('canvas').getContext('2d');
-    _titleMeasureCtx.font = `bold ${TITLE_FONT_SIZE}px ${FONT_STACK}`;
-    return _titleMeasureCtx.measureText(text).width;
-  }
+  const TITLE_MAX_W = DOC.w - 200; // margen a cada lado, deja espacio al logo
 
-  // Título en una sola línea si entra; si no, corta antes del nombre y lo
-  // baja a una segunda línea (el objeto es multilínea, así que crece hacia abajo).
+  // Un solo string — el ancho fijo del fabric.Textbox (ver más abajo) es
+  // quien decide cuántas líneas hacen falta, con el texto REALMENTE
+  // renderizado (no una medición aparte que podía divergir de la fuente
+  // final una vez cargada). Nombres largos bajan a 2+ líneas solos.
   const titleFor = (mode) => {
     const base = (mode === 'evac' ? 'RUTA DE EVACUACIÓN'
       : mode === 'san' ? 'RUTA SANITARIA'
         : 'RUTA DE EVACUACIÓN / SANITARIA').toUpperCase();
     const n = drugName().toUpperCase();
-    if (!n) return base;
-    const oneLine = base + '  —  ' + n;
-    return textWidth(oneLine) <= TITLE_MAX_W ? oneLine : base + '\n' + n;
+    return n ? base + '  —  ' + n : base;
   };
 
   // Crea el encabezado (logo + título) si aún no existe.
@@ -897,10 +891,31 @@ const SR = (() => {
     // título del plano: centrado arriba. Si no existe, se crea con el nombre de
     // la droguería + la ruta. Si existe pero quedó el viejo "PLANO VECTORIZADO"
     // (que metía el pipeline), se reemplaza por el título correcto.
-    const titulo = find('titulo');
+    let titulo = find('titulo');
+    // migrar planos viejos: el título era un fabric.IText de una sola línea
+    // (o con un \n metido a mano) que no reajustaba el wrap si la fuente
+    // real terminaba siendo más ancha que la medida al crearlo — se veía
+    // cortado por el borde de la hoja. Se reconstruye como Textbox de ancho
+    // fijo, que SIEMPRE envuelve el texto a como quepa de verdad.
+    if (titulo && titulo.type !== 'textbox') {
+      const prevText = (titulo.text || '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+      const isPlaceholder = /PLANO VECTORIZADO/i.test(prevText);
+      canvas.remove(titulo);
+      titulo = null;
+      if (!isPlaceholder) {
+        const nt = new fabric.Textbox(prevText, {
+          left: cx, top: 22, originX: 'center', originY: 'top', width: TITLE_MAX_W,
+          fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 38, fill: '#111827',
+          textAlign: 'center', srType: 'titulo', srCat: 'title',
+        });
+        canvas.add(nt);
+        titulo = nt;
+      }
+    }
+
     if (!titulo) {
-      canvas.add(new fabric.IText(titleFor(null), {
-        left: cx, top: 22, originX: 'center', originY: 'top',
+      canvas.add(new fabric.Textbox(titleFor(null), {
+        left: cx, top: 22, originX: 'center', originY: 'top', width: TITLE_MAX_W,
         fontFamily: FONT_STACK, fontWeight: 'bold', fontSize: 38, fill: '#111827',
         textAlign: 'center', srType: 'titulo', srCat: 'title',
       }));
@@ -914,21 +929,11 @@ const SR = (() => {
       titulo.set('fontFamily', FONT_STACK);
     }
 
-    // Jost carga async por Google Fonts (editor.html): si todavía no estaba
-    // lista cuando se midió arriba, el corte de línea pudo calcularse con
-    // una fuente fallback distinta a la que termina pintándose (título
-    // "cortado" al crear un plano nuevo). Recalcular una vez que carga.
+    // Jost carga async por Google Fonts (editor.html): el Textbox recalcula
+    // el wrap con la fuente real en cada render, así que solo hace falta
+    // forzar un repintado una vez que termine de cargar.
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => {
-        const t = find('titulo');
-        if (!t || /PLANO VECTORIZADO/i.test(t.text || '')) return;
-        const fixed = titleFor(null);
-        if (fixed !== t.text) {
-          t.set({ text: fixed, left: cx });
-          t.setCoords && t.setCoords();
-          canvas.requestRenderAll();
-        }
-      });
+      document.fonts.ready.then(() => canvas.requestRenderAll());
     }
   }
 
@@ -944,7 +949,7 @@ const SR = (() => {
 
   /* ── Formato de texto ───────────────────────────────────── */
 
-  const isTextObj = (o) => o && (o.type === 'i-text' || o.type === 'text');
+  const isTextObj = (o) => o && (o.type === 'i-text' || o.type === 'text' || o.type === 'textbox');
 
   function syncTextBar() {
     const bar = document.getElementById('textBar');
@@ -2010,8 +2015,12 @@ const SR = (() => {
     const dashes = [];
     let start = 0;
     while (start < usable - 0.5) {
-      const end = Math.min(start + SEGMENT_LEN, usable);
-      if (end - start < SEGMENT_LEN * 0.4) break;   // cola muy corta: no vale la pena, la cubre la punta final
+      let end = Math.min(start + SEGMENT_LEN, usable);
+      // si lo que sobra después de este tramo es muy corto para su propio
+      // hueco+tramo, en vez de cortarlo y dejarlo en blanco (antes quedaba
+      // una raya "flotando" separada de la punta final) se lo comemos: este
+      // tramo llega directo hasta `usable`, pegado a donde arranca la cabeza.
+      if (usable - end < SEGMENT_GAP + SEGMENT_LEN * 0.4) end = usable;
       const from = pointAtDistance(pts, start);
       const to = pointAtDistance(pts, end);
       const way = [from.point];
