@@ -1104,10 +1104,14 @@ const SR = (() => {
       if (bx || by) o.setCoords();
     });
 
-    // Rotación con snap a ángulos estándar (0, 15, 30, 45, 90, …)
+    // Rotación libre por defecto; con Shift apretado, snap a 0/15/30/45/90…
+    // (antes el snap corría siempre dentro de ±5° de cada múltiplo de 15°,
+    // así que al arrastrar el ángulo se "pegaba" duro y después saltaba de
+    // golpe al salir de esa zona — se sentía errático incluso sin querer
+    // encajar en un ángulo redondo).
     canvas.on('object:rotating', (opt) => {
       const o = opt.target;
-      if (!o) return;
+      if (!o || !(opt.e && opt.e.shiftKey)) return;
       const snap = Math.round(o.angle / 15) * 15;
       if (Math.abs(o.angle - snap) < 5) o.angle = ((snap % 360) + 360) % 360;
     });
@@ -1880,7 +1884,11 @@ const SR = (() => {
   // sobre un segmento recto local, para que no haya ninguna diferencia de
   // forma entre una flecha suelta y un tramo de ruta auto-generada.
   function makeArrowShape(color, len) {
-    const L = len || 72;                   // largo total de la flecha
+    // por defecto, EXACTAMENTE el largo de un tramo de ruta generada
+    // (SEGMENT_LEN) — antes eran 72px, más larga que cualquier flechita
+    // de una ruta auto (46px), así que se veía "más grande"/distinta
+    // aunque la forma fuera idéntica.
+    const L = len || SEGMENT_LEN;          // largo total de la flecha
     const midHeadH = ARROW_SIZE * 0.65;
     const tipLen = midHeadH;                // ver nota en renderRoute: hueco = alcance real de la cabeza
     const xTip = L / 2, xStart = -L / 2;
@@ -1922,7 +1930,7 @@ const SR = (() => {
   function bakeArrowStretch(o) {
     const sx = Math.abs(o.scaleX || 1), sy = Math.abs(o.scaleY || 1);
     if (Math.abs(sx - sy) < 0.01) return;     // escala uniforme: nada que corregir
-    const newLen = Math.max(28, (o.srLen || 72) * sx / sy);
+    const newLen = Math.max(28, (o.srLen || SEGMENT_LEN) * sx / sy);
     const color = o.stroke || (o._objects && o._objects[0] && o._objects[0].stroke) || EVAC_COLOR;
     const n = makeArrowShape(color, newLen);
     n.set({
