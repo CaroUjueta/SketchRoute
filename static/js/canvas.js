@@ -370,6 +370,24 @@ const SR = (() => {
     return new fabric.Control({
       cursorStyle: 'crosshair',
       actionName: 'moveEnd',
+      // Arrastrar desde la esquina arranca una pared nueva (sin buscar el
+      // pixel exacto lejos del extremo); Alt+arrastre mueve el extremo
+      // como antes.
+      mouseDownHandler: (eventData, transform, x, y) => {
+        if (eventData.e.altKey) return false;
+        const obj = transform.target;
+        const from = lineEndAbs(obj)[idx];
+        canvas.discardActiveObject();
+        state.tool = 'wall';
+        applyToolFlags();
+        document.querySelectorAll('.ed-tool').forEach(b => b.classList.remove('active'));
+        const wb = document.getElementById('tool-wall');
+        if (wb) wb.classList.add('active');
+        state.chain = { x: from.x, y: from.y };
+        setStatus('Clic en el punto final de la pared (Esc cancela)');
+        canvas.requestRenderAll();
+        return true;
+      },
       positionHandler: (dim, finalMatrix, obj) => {
         const ends = lineEndAbs(obj);
         return fabric.util.transformPoint(
