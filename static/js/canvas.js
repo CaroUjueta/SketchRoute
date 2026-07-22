@@ -370,6 +370,11 @@ const SR = (() => {
     return new fabric.Control({
       cursorStyle: 'crosshair',
       actionName: 'moveEnd',
+      // Zona de agarre grande: así "mover la pared entera" queda reservado
+      // al tercio central, y agarrar cerca de cualquier esquina siempre
+      // arranca una pared nueva (o mueve el extremo con Alt).
+      sizeX: 40,
+      sizeY: 40,
       // Arrastrar desde la esquina arranca una pared nueva (sin buscar el
       // pixel exacto lejos del extremo); Alt+arrastre mueve el extremo
       // como antes.
