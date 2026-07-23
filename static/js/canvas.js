@@ -78,7 +78,10 @@ const SR = (() => {
     gridSnap: false, guides: [],
   };
 
-  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srDirX', 'srDirY', 'srAuto', 'srLen'];
+  const PROPS = [
+    'srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srDirX', 'srDirY', 'srAuto', 'srLen',
+    'srAx', 'srAy', 'srBx', 'srBy', // extremos editables de puerta/vano, relativos al centro
+  ];
 
   // Silencia historial/autosave mientras corre fn; el finally garantiza que un
   // throw no deje state.suppress colgado (historial congelado en silencio).
@@ -160,6 +163,7 @@ const SR = (() => {
           migrateReciclableColor();
           fixupManualArrows();
           fixupWallCaps();
+      fixupDoorEnds();
           ensureHeader();
           pushHistory(true);
           updateEmptyHint();
@@ -451,6 +455,105 @@ const SR = (() => {
   function armWallControls(o) {
     o.controls = LINE_CONTROLS;   // solo las 2 manijas de extremo
     o.hasBorders = false;
+  }
+
+  /* ── Extremos editables de puerta/vano (misma lógica que las paredes) ──── */
+
+  // originX/Y siempre 'center' y sin rotación propia: el extremo absoluto es
+  // sencillamente el centro + un offset fijo (srAx/Ay, srBx/By), igual que
+  // lineEndAbs pero sin necesitar la matriz completa.
+  const doorEndAbs = (o) => [
+    { x: o.left + o.srAx, y: o.top + o.srAy },
+    { x: o.left + o.srBx, y: o.top + o.srBy },
+  ];
+
+  // Ancla origen/centro y guarda los extremos A/B como offset del centro.
+  function finalizeDoorLike(o, A, B) {
+    const c = o.getCenterPoint();
+    o.set({
+      originX: 'center', originY: 'center', left: c.x, top: c.y,
+      srAx: A.x - c.x, srAy: A.y - c.y, srBx: B.x - c.x, srBy: B.y - c.y,
+    });
+    o.setCoords();
+  }
+
+  // Reconstruye la geometría (hueco + hoja + arco, o solo hueco) manteniendo
+  // el mismo objeto de fabric —así el control que está arrastrando sigue
+  // siendo válido cuadro a cuadro— con el nuevo ángulo/largo A→B.
+  function rebuildDoorLike(o, A, B) {
+    const fresh = o.srType === 'puerta' ? makeDoor(A, B) : makeVano(A, B);
+    if (o.type === 'group') {
+      o._objects.slice().forEach(ch => o.remove(ch));
+      fresh._objects.forEach(ch => o.add(ch));
+    } else {
+      o.set({ path: fresh.path, pathOffset: fresh.pathOffset });
+    }
+    o.set({
+      width: fresh.width, height: fresh.height,
+      srGapX: fresh.srGapX, srGapY: fresh.srGapY,
+      srDirX: fresh.srDirX, srDirY: fresh.srDirY, srLen: fresh.srLen,
+    });
+    finalizeDoorLike(o, A, B);
+  }
+
+  function makeDoorEndControl(idx) {
+    return new fabric.Control({
+      cursorStyle: 'crosshair',
+      actionName: 'moveDoorEnd',
+      sizeX: 40, sizeY: 40,   // zona de agarre grande, igual que en las paredes
+      positionHandler: (dim, finalMatrix, obj) => {
+        const ends = doorEndAbs(obj);
+        return fabric.util.transformPoint(
+          new fabric.Point(ends[idx].x, ends[idx].y),
+          obj.canvas.viewportTransform,
+        );
+      },
+      actionHandler: (eventData, transform, x, y) => {
+        const obj = transform.target;
+        const other = doorEndAbs(obj)[1 - idx];
+        let p = { x, y };
+        // ortogonal contra el otro extremo (mismo criterio que las paredes)
+        if (Math.abs(p.x - other.x) < 9) p.x = other.x;
+        if (Math.abs(p.y - other.y) < 9) p.y = other.y;
+        const A = idx === 0 ? p : other;
+        const B = idx === 0 ? other : p;
+        if (Math.hypot(B.x - A.x, B.y - A.y) < 14) return false;
+        rebuildDoorLike(obj, A, B);
+        return true;
+      },
+      render: (ctx, left, top) => {
+        ctx.save();
+        ctx.fillStyle = '#2563eb'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(left, top, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.restore();
+      },
+    });
+  }
+  const DOOR_CONTROLS = { e0: makeDoorEndControl(0), e1: makeDoorEndControl(1) };
+
+  function armDoorControls(o) {
+    o.controls = DOOR_CONTROLS;
+    o.hasBorders = false;
+  }
+
+  // Migra puertas/vanos guardados antes de tener extremos editables: deriva
+  // A/B de su geometría actual y ancla origen al centro, como a las paredes.
+  function fixupDoorEnds() {
+    canvas.getObjects().forEach(o => {
+      if (o.srType !== 'puerta' && o.srType !== 'vano') return;
+      if (typeof o.srAx !== 'number') {
+        const r = gapRect(o);
+        const dir = (typeof o.srDirX === 'number')
+          ? { x: o.srDirX, y: o.srDirY }
+          : (o.srDir === 'v' ? { x: 0, y: 1 } : { x: 1, y: 0 });
+        const len = o.srLen || Math.max(r.width, r.height);
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const A = { x: cx - dir.x * len / 2, y: cy - dir.y * len / 2 };
+        const B = { x: cx + dir.x * len / 2, y: cy + dir.y * len / 2 };
+        finalizeDoorLike(o, A, B);
+      }
+      armDoorControls(o);
+    });
   }
 
   // Normaliza paredes/muebles al cargar: cap cuadrado, anclaje al centro
@@ -795,11 +898,14 @@ const SR = (() => {
     const arc = new fabric.Path(`M ${T.x} ${T.y} A ${s} ${s} 0 0 ${sweep} ${B.x} ${B.y}`, {
       stroke: '#9ca3af', strokeWidth: 1.5, strokeDashArray: [4, 4], fill: 'transparent',
     });
-    return new fabric.Group([gap, leaf, arc], {
+    const g = new fabric.Group([gap, leaf, arc], {
       srType: 'puerta', srCat: 'shape',
       srGapX: gap.srGapX, srGapY: gap.srGapY,
       srDirX: dir.x, srDirY: dir.y, srLen: s,
     });
+    finalizeDoorLike(g, A, B);
+    armDoorControls(g);
+    return g;
   }
 
   // Vano: abertura simple en la pared (solo el hueco, sin hoja).
@@ -810,6 +916,8 @@ const SR = (() => {
     const v = gapPath(start, s, dir);
     v.srType = 'vano'; v.srCat = 'shape';
     v.srDirX = dir.x; v.srDirY = dir.y; v.srLen = s;
+    finalizeDoorLike(v, { x: start.x, y: start.y }, { x: end.x, y: end.y });
+    armDoorControls(v);
     return v;
   }
 
@@ -2520,6 +2628,7 @@ const SR = (() => {
       ensurePageBg();   // la hoja no viaja en el snapshot (excludeFromExport)
       fixupManualArrows();
       fixupWallCaps();
+      fixupDoorEnds();
       // loadFromJSON no emite selection:cleared → las barras quedarían
       // mostrando propiedades de un objeto que ya no existe.
       canvas.discardActiveObject();
