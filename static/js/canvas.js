@@ -1549,21 +1549,21 @@ const SR = (() => {
     if (!rows.length) { setStatus('No hay elementos para la leyenda todavía', 'warn'); return; }
 
     const prev = all.find(o => o.srType === 'leyenda');
-    const PADX = 14, ROW_H = 34, ICON = 26, TITLE_H = 36, W = 230;
-    const H = TITLE_H + rows.length * ROW_H + 10;
+    const PADX = 8, ROW_H = 20, ICON = 14, TITLE_H = 20, W = 140;
+    const H = TITLE_H + rows.length * ROW_H + 6;
     const parts = [
-      new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1.5 }),
+      new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1 }),
       new fabric.Text('CONVENCIONES', {
-        left: W / 2, top: 10, originX: 'center', fontFamily: FONT_STACK,
-        fontSize: 16, fontWeight: 'bold', fill: '#111827',
+        left: W / 2, top: 5, originX: 'center', fontFamily: FONT_STACK,
+        fontSize: 10, fontWeight: 'bold', fill: '#111827',
       }),
     ];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const cy = TITLE_H + i * ROW_H + ROW_H / 2;
       if (r.arrow) {
-        const a = makeArrowShape(r.arrow, 34);
-        a.forEachObject(ch => ch.set('strokeWidth', 3));
+        const a = makeArrowShape(r.arrow, 20);
+        a.forEachObject(ch => ch.set('strokeWidth', 2));
         a.set({ left: PADX + ICON / 2, top: cy });
         parts.push(a);
       } else {
@@ -1576,8 +1576,8 @@ const SR = (() => {
         }
       }
       parts.push(new fabric.Text(r.label, {
-        left: PADX + ICON + 10, top: cy, originY: 'center',
-        fontFamily: FONT_STACK, fontSize: 15, fill: '#111827',
+        left: PADX + ICON + 6, top: cy, originY: 'center',
+        fontFamily: FONT_STACK, fontSize: 9, fill: '#111827',
       }));
     }
     const g = new fabric.Group(parts, {
