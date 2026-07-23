@@ -699,12 +699,21 @@ const SR = (() => {
             // preview del trazo libre: una sola polilínea temporal
             clearRoutePreview();
             const spec = ROUTE_KINDS[state.routeKind];
-            const pl = new fabric.Polyline(state.freePts.map(q => ({ x: q.x, y: q.y })), {
+            const ptsArr = state.freePts.map(q => ({ x: q.x, y: q.y }));
+            const previewObjs = [];
+            if (isWhiteArrow(spec.color)) {
+              // blanca de verdad: sin contorno se pierde contra el fondo
+              previewObjs.push(new fabric.Polyline(ptsArr, {
+                fill: 'transparent', stroke: '#111827', strokeWidth: 4, strokeDashArray: [6, 5],
+                selectable: false, evented: false, srCat: 'temp', objectCaching: false,
+              }));
+            }
+            previewObjs.push(new fabric.Polyline(ptsArr, {
               fill: 'transparent', stroke: spec.color, strokeWidth: 2, strokeDashArray: [6, 5],
               selectable: false, evented: false, srCat: 'temp', objectCaching: false,
-            });
-            withSuppress(() => canvas.add(pl));
-            state.routePreview = [pl];
+            }));
+            withSuppress(() => previewObjs.forEach(o => canvas.add(o)));
+            state.routePreview = previewObjs;
             canvas.requestRenderAll();
           }
         } else if ((state.routePts || []).length) {
@@ -1444,7 +1453,16 @@ const SR = (() => {
     const spec = ROUTE_KINDS[state.routeKind];
     const all = cursor ? pts.concat([cursor]) : pts;
     const segs = [];
+    // la ruta reciclable es blanca de verdad: sin contorno se pierde contra
+    // el fondo del plano mientras se está trazando.
+    const outline = isWhiteArrow(spec.color);
     for (let i = 1; i < all.length; i++) {
+      if (outline) {
+        segs.push(new fabric.Line([all[i-1].x, all[i-1].y, all[i].x, all[i].y], {
+          stroke: '#111827', strokeWidth: 4, strokeDashArray: [6, 5],
+          selectable: false, evented: false, srCat: 'temp',
+        }));
+      }
       segs.push(new fabric.Line([all[i-1].x, all[i-1].y, all[i].x, all[i].y], {
         stroke: spec.color, strokeWidth: 2, strokeDashArray: [6, 5],
         selectable: false, evented: false, srCat: 'temp',
