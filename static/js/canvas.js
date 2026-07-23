@@ -378,7 +378,11 @@ const SR = (() => {
     ];
   };
 
-  function makeEndControl(idx) {
+  // newWallOnDrag: solo tiene sentido para PAREDES (arrastrar la esquina
+  // arranca una pared nueva ahí). Los MUEBLES comparten el mismo control de
+  // extremo pero sin ese atajo — si no, agarrar la punta de un mueble corto
+  // se confundía con "empezar a dibujar una pared" y todo se volvía loco.
+  function makeEndControl(idx, newWallOnDrag) {
     return new fabric.Control({
       cursorStyle: 'crosshair',
       actionName: 'moveEnd',
@@ -390,7 +394,7 @@ const SR = (() => {
       // Arrastrar desde la esquina arranca una pared nueva (sin buscar el
       // pixel exacto lejos del extremo); Alt+arrastre mueve el extremo
       // como antes.
-      mouseDownHandler: (eventData, transform, x, y) => {
+      mouseDownHandler: newWallOnDrag ? (eventData, transform, x, y) => {
         if (eventData.e.altKey) return false;
         const obj = transform.target;
         const from = lineEndAbs(obj)[idx];
@@ -404,7 +408,7 @@ const SR = (() => {
         setStatus('Clic en el punto final de la pared (Esc cancela)');
         canvas.requestRenderAll();
         return true;
-      },
+      } : undefined,
       positionHandler: (dim, finalMatrix, obj) => {
         const ends = lineEndAbs(obj);
         return fabric.util.transformPoint(
@@ -450,10 +454,11 @@ const SR = (() => {
       },
     });
   }
-  const LINE_CONTROLS = { e0: makeEndControl(0), e1: makeEndControl(1) };
+  const LINE_CONTROLS = { e0: makeEndControl(0, true), e1: makeEndControl(1, true) };
+  const MUEBLE_CONTROLS = { e0: makeEndControl(0, false), e1: makeEndControl(1, false) };
 
   function armWallControls(o) {
-    o.controls = LINE_CONTROLS;   // solo las 2 manijas de extremo
+    o.controls = o.srType === 'mueble' ? MUEBLE_CONTROLS : LINE_CONTROLS;   // solo las 2 manijas de extremo
     o.hasBorders = false;
   }
 
