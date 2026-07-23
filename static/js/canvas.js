@@ -519,11 +519,13 @@ const SR = (() => {
 
       state.snapPts = collectEndpoints();
       let sp;
+      state.wallDir = null;
       if (t === 'rect') {
         sp = p;
       } else if (t === 'door' || t === 'vano') {
-        const w = wallAt(p);                       // enganchar el punto de partida a la pared
+        const w = wallAt(p);                       // enganchar a la pared
         sp = w ? w.q : snapPoint(p, state.snapPts);
+        state.wallDir = w ? { x: w.ux, y: w.uy } : null;   // recta con la pared, cualquier ángulo
       } else {
         sp = snapPoint(p, state.snapPts);
       }
@@ -621,9 +623,13 @@ const SR = (() => {
           left:   Math.min(p.x, state.start.x),
           top:    Math.min(p.y, state.start.y),
         });
+      } else if ((state.tool === 'door' || state.tool === 'vano') && state.wallDir) {
+        // puerta/vano siempre derechitos con la pared enganchada, sea cual sea su ángulo
+        const dir = state.wallDir;
+        const t = (p.x - state.start.x) * dir.x + (p.y - state.start.y) * dir.y;
+        const end = { x: state.start.x + dir.x * t, y: state.start.y + dir.y * t };
+        state.draft.set({ x2: end.x, y2: end.y });
       } else {
-        // pared, puerta y vano comparten la misma lógica de trazo libre:
-        // enganche a extremos existentes y, si no hay, ortho-snap solo cerca del eje.
         let end = snapPoint(p, state.snapPts);
         if (end === p) end = orthoSnap(state.start, p);
         state.draft.set({ x2: end.x, y2: end.y });
