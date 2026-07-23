@@ -274,8 +274,8 @@ const SR = (() => {
     if (tool === 'erase') {
       const selected = canvas.getActiveObjects();
       if (selected.length > 0) {
-        withSuppress(() => selected.forEach(o => canvas.remove(o)));
         canvas.discardActiveObject();
+        withSuppress(() => selected.forEach(o => canvas.remove(o)));
         pushHistory();
         setStatus(`${selected.length} elemento(s) borrado(s)`);
       }
@@ -589,8 +589,12 @@ const SR = (() => {
       if (t === 'erase') {
         const active = canvas.getActiveObjects();
         if (active.length > 0) {
-          withSuppress(() => active.forEach(o => canvas.remove(o)));
+          // primero disolver la selección múltiple: si se borran sus objetos
+          // mientras el grupo de selección todavía existe, fabric se rompe
+          // al intentar recalcular los límites de un grupo con miembros ya
+          // eliminados.
           canvas.discardActiveObject();
+          withSuppress(() => active.forEach(o => canvas.remove(o)));
           canvas.requestRenderAll();
           pushHistory();
           setStatus(`${active.length} elemento(s) borrado(s)`);
@@ -2611,8 +2615,11 @@ const SR = (() => {
   function deleteSelected() {
     const objs = canvas.getActiveObjects();
     if (!objs.length) return;
-    withSuppress(() => objs.forEach(o => canvas.remove(o)));
+    // disolver la selección múltiple ANTES de borrar: fabric rompe al
+    // recalcular los límites de un grupo de selección con miembros ya
+    // eliminados a mitad del forEach.
     canvas.discardActiveObject();
+    withSuppress(() => objs.forEach(o => canvas.remove(o)));
     canvas.requestRenderAll();
     pushHistory();
   }
