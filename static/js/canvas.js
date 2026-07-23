@@ -2576,32 +2576,63 @@ const SR = (() => {
 
   /* ── Portapapeles interno (Ctrl+C / X / V) ──────────────── */
 
-  let clipboard = null;
+  // Portapapeles: guarda cada objeto SUELTO serializado (no una
+  // activeSelection agrupada) porque mientras varios objetos están
+  // multi-seleccionados fabric muta su left/top a coordenadas RELATIVAS al
+  // grupo transitorio — si se serializa así, al reconstruir quedan mal
+  // ubicados. discardActiveObject() restaura la posición absoluta real de
+  // cada uno antes de leerla.
+  let clipboard = null;   // [{...toObject(PROPS)}, ...] — mismo formato para pegado local o cruzado
+  const CLIP_MARK = 'sketchroute-clip-v1';
+  function selectAllObjects() {
+    const objs = canvas.getObjects().filter(o => o.srCat !== 'page' && o.srCat !== 'temp' && o.selectable !== false);
+    if (!objs.length) return;
+    canvas.discardActiveObject();
+    const sel = new fabric.ActiveSelection(objs, { canvas });
+    canvas.setActiveObject(sel);
+    canvas.requestRenderAll();
+  }
   function copySelected() {
     const ao = canvas.getActiveObject();
     if (!ao || ao.srCat === 'page') return;
-    ao.clone((cl) => { clipboard = cl; setStatus('Copiado — Ctrl+V para pegar'); }, PROPS);
+    const objs = ao.type === 'activeSelection' ? ao.getObjects().slice() : [ao];
+    canvas.discardActiveObject();   // restaura coords absolutas si era multi-selección
+    clipboard = objs.map(o => o.toObject(PROPS));
+    // portapapeles del SISTEMA (no solo en memoria): permite copiar en una
+    // pestaña/plano y pegar en OTRA pestaña/plano distinto.
+    try {
+      const payload = JSON.stringify({ mark: CLIP_MARK, objects: clipboard });
+      navigator.clipboard && navigator.clipboard.writeText(payload).catch(() => {});
+    } catch (e) { /* portapapeles no disponible: queda el interno igual */ }
+    // re-seleccionar lo mismo que estaba, para no perder la selección visual
+    canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, { canvas }) : objs[0]);
+    canvas.requestRenderAll();
+    setStatus('Copiado — Ctrl+V para pegar (también en otra pestaña)');
   }
-  function pasteClipboard() {
-    if (!clipboard) return;
-    clipboard.clone((cl) => {
+  function pasteObjects(serialized) {
+    if (!serialized || !serialized.length) return;
+    fabric.util.enlivenObjects(serialized, (objs) => {
+      if (!objs.length) return;
       withSuppress(() => {
         canvas.discardActiveObject();
-        cl.set({ left: cl.left + 18, top: cl.top + 18 });
-        if (cl.type === 'activeSelection') {
-          cl.canvas = canvas;
-          cl.forEachObject(o => canvas.add(o));
-          cl.setCoords();
-        } else {
-          canvas.add(cl);
-        }
+        objs.forEach(o => { o.set({ left: o.left + 18, top: o.top + 18 }); canvas.add(o); });
       });
-      clipboard.set({ left: cl.left, top: cl.top });   // pegados sucesivos en cascada
-      canvas.setActiveObject(cl);
+      canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, { canvas }) : objs[0]);
       canvas.requestRenderAll();
       pushHistory();
       setStatus('Pegado');
-    }, PROPS);
+    });
+  }
+  function pasteClipboard() {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then((text) => {
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch (e) { /* no era JSON nuestro */ }
+        pasteObjects(parsed && parsed.mark === CLIP_MARK ? parsed.objects : clipboard);
+      }).catch(() => pasteObjects(clipboard));
+      return;
+    }
+    pasteObjects(clipboard);
   }
 
   function duplicateSelected() {
@@ -2898,6 +2929,7 @@ const SR = (() => {
       else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelected(); }
+      else if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllObjects(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected(); deleteSelected(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); }
