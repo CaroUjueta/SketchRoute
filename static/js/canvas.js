@@ -1593,15 +1593,19 @@ const SR = (() => {
         fontFamily: FONT_STACK, fontSize: 9, fill: '#111827',
       }));
     }
-    // ancho angosto: apenas lo que ocupa la etiqueta más larga.
-    const titleW = new fabric.Text(TITLE_TXT, { fontFamily: FONT_STACK, fontSize: 10, fontWeight: 'bold' }).width;
-    const maxTextW = Math.max(titleW, ...texts.map(t => t.width));
+    // ancho angosto: apenas lo que ocupan las filas (icono + etiqueta), sin
+    // dejar que el título "CONVENCIONES" infle la caja — si no entra, se
+    // achica su letra para no desperdiciar espacio a la derecha.
+    const maxTextW = Math.max(...texts.map(t => t.width));
     const W = PADX + ICON + 6 + maxTextW + PADX;
+    let titleSize = 10;
+    const titleW = () => new fabric.Text(TITLE_TXT, { fontFamily: FONT_STACK, fontSize: titleSize, fontWeight: 'bold' }).width;
+    while (titleW() > W - PADX && titleSize > 6) titleSize -= 0.5;
     const parts = [
       new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1 }),
       new fabric.Text(TITLE_TXT, {
         left: W / 2, top: 5, originX: 'center', fontFamily: FONT_STACK,
-        fontSize: 10, fontWeight: 'bold', fill: '#111827',
+        fontSize: titleSize, fontWeight: 'bold', fill: '#111827',
       }),
       ...icons, ...texts,
     ];
