@@ -1549,15 +1549,10 @@ const SR = (() => {
     if (!rows.length) { setStatus('No hay elementos para la leyenda todavía', 'warn'); return; }
 
     const prev = all.find(o => o.srType === 'leyenda');
-    const PADX = 8, ROW_H = 20, ICON = 14, TITLE_H = 20, W = 140;
+    const PADX = 8, ROW_H = 20, ICON = 14, TITLE_H = 20, TITLE_TXT = 'CONVENCIONES';
     const H = TITLE_H + rows.length * ROW_H + 6;
-    const parts = [
-      new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1 }),
-      new fabric.Text('CONVENCIONES', {
-        left: W / 2, top: 5, originX: 'center', fontFamily: FONT_STACK,
-        fontSize: 10, fontWeight: 'bold', fill: '#111827',
-      }),
-    ];
+    const icons = [];
+    const texts = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const cy = TITLE_H + i * ROW_H + ROW_H / 2;
@@ -1565,21 +1560,33 @@ const SR = (() => {
         const a = makeArrowShape(r.arrow, 20);
         a.forEachObject(ch => ch.set('strokeWidth', 2));
         a.set({ left: PADX + ICON / 2, top: cy });
-        parts.push(a);
+        icons.push(a);
       } else {
         const img = await loadThumb(r.type);
         if (img) {
           img.scaleToWidth(ICON);
           if (img.getScaledHeight() > ICON) img.scaleToHeight(ICON);
           img.set({ left: PADX + ICON / 2, top: cy, originX: 'center', originY: 'center' });
-          parts.push(img);
+          icons.push(img);
         }
       }
-      parts.push(new fabric.Text(r.label, {
+      texts.push(new fabric.Text(r.label, {
         left: PADX + ICON + 6, top: cy, originY: 'center',
         fontFamily: FONT_STACK, fontSize: 9, fill: '#111827',
       }));
     }
+    // ancho angosto: apenas lo que ocupa la etiqueta más larga.
+    const titleW = new fabric.Text(TITLE_TXT, { fontFamily: FONT_STACK, fontSize: 10, fontWeight: 'bold' }).width;
+    const maxTextW = Math.max(titleW, ...texts.map(t => t.width));
+    const W = PADX + ICON + 6 + maxTextW + PADX;
+    const parts = [
+      new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#ffffff', stroke: '#111827', strokeWidth: 1 }),
+      new fabric.Text(TITLE_TXT, {
+        left: W / 2, top: 5, originX: 'center', fontFamily: FONT_STACK,
+        fontSize: 10, fontWeight: 'bold', fill: '#111827',
+      }),
+      ...icons, ...texts,
+    ];
     const g = new fabric.Group(parts, {
       srType: 'leyenda', srCat: 'marca',
       left: prev ? prev.left : DOC.w - W - 26,
