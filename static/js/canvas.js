@@ -394,11 +394,17 @@ const SR = (() => {
       // que el default de fabric (~13) sin tragarse objetos cortos.
       sizeX: 22,
       sizeY: 22,
-      // Arrastrar desde la esquina arranca una pared nueva (sin buscar el
-      // pixel exacto lejos del extremo); Alt+arrastre mueve el extremo
-      // como antes.
+      // Arrastrar la esquina (sin Alt) reshapea ESTA pared, igual que en
+      // muebles/puertas — antes era al revés (arrastre simple = pared nueva),
+      // y como casi nadie sostiene Alt para simplemente acortar/alargar una
+      // pared, cada intento de resize disparaba por error "empezar pared
+      // nueva desde acá": el mouseup dejaba el modo cadena armado en
+      // silencio (sin dibujar nada) esperando el próximo clic, y ESE clic
+      // siguiente terminaba plantando una pared random donde sea — de ahí
+      // el "se vuelve loco / no me deja seguir". Alt+arrastre sigue
+      // arrancando pared nueva para quien lo use a propósito.
       mouseDownHandler: newWallOnDrag ? (eventData, transform, x, y) => {
-        if (eventData.e.altKey) return false;
+        if (!eventData || !eventData.e || !eventData.e.altKey) return false;
         const obj = transform.target;
         const from = lineEndAbs(obj)[idx];
         canvas.discardActiveObject();
