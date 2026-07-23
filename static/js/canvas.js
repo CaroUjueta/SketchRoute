@@ -78,7 +78,7 @@ const SR = (() => {
     gridSnap: false, guides: [],
   };
 
-  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srAuto', 'srLen'];
+  const PROPS = ['srType', 'srCat', 'srHidden', 'srGapX', 'srGapY', 'srDir', 'srDirX', 'srDirY', 'srAuto', 'srLen'];
 
   // Silencia historial/autosave mientras corre fn; el finally garantiza que un
   // throw no deje state.suppress colgado (historial congelado en silencio).
@@ -350,7 +350,15 @@ const SR = (() => {
       const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
       const q = { x: a.x + dx * t, y: a.y + dy * t };
       const d = Math.hypot(q.x - p.x, q.y - p.y);
-      if (d < bd) { bd = d; best = { q, dir: Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v' }; }
+      if (d < bd) {
+        bd = d;
+        const len = Math.sqrt(len2);
+        best = {
+          q,
+          dir: Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v',
+          ux: dx / len, uy: dy / len, // vector unitario a lo largo de la pared, cualquier ángulo
+        };
+      }
     });
     return best;
   }
@@ -517,7 +525,7 @@ const SR = (() => {
       } else if (t === 'door' || t === 'vano') {
         const w = wallAt(p);                       // enganchar a la pared
         sp = w ? w.q : snapPoint(p, state.snapPts);
-        state.wallDir = w ? w.dir : null;
+        state.wallDir = w ? { x: w.ux, y: w.uy } : null;   // vector real de la pared, cualquier ángulo
       } else {
         sp = snapPoint(p, state.snapPts);
       }
@@ -616,8 +624,10 @@ const SR = (() => {
           top:    Math.min(p.y, state.start.y),
         });
       } else if ((state.tool === 'door' || state.tool === 'vano') && state.wallDir) {
-        // deslizar a lo largo de la pared enganchada
-        const end = state.wallDir === 'h' ? { x: p.x, y: state.start.y } : { x: state.start.x, y: p.y };
+        // deslizar a lo largo de la pared enganchada (cualquier ángulo, no solo h/v)
+        const dir = state.wallDir;
+        const t = (p.x - state.start.x) * dir.x + (p.y - state.start.y) * dir.y;
+        const end = { x: state.start.x + dir.x * t, y: state.start.y + dir.y * t };
         state.draft.set({ x2: end.x, y2: end.y });
       } else {
         let end = snapPoint(p, state.snapPts);
@@ -655,11 +665,11 @@ const SR = (() => {
       if (!d) return;
 
       if (t === 'door' || t === 'vano') {
-        const s = Math.max(Math.abs(d.x2 - d.x1), Math.abs(d.y2 - d.y1));
+        const s = Math.hypot(d.x2 - d.x1, d.y2 - d.y1);
         canvas.remove(d);
         if (s >= 14) {
           const start = { x: d.x1, y: d.y1 }, end = { x: d.x2, y: d.y2 };
-          canvas.add(t === 'door' ? makeDoor(start, end, s) : makeVano(start, end));
+          canvas.add(t === 'door' ? makeDoor(start, end) : makeVano(start, end));
         }
         pushHistory();
         return;
@@ -754,36 +764,33 @@ const SR = (() => {
   /* ── Constructores ──────────────────────────────────────── */
 
   // Hueco en la pared (rectángulo blanco + borde) — lo comparten puerta y vano.
-  function gapPath(start, s, horizontal, sx, sy) {
+  // `dir` es el vector unitario a lo largo de la pared (cualquier ángulo, no solo h/v).
+  function gapPath(start, s, dir) {
     const wt = 4; // mitad del grosor de pared (8px)
-    let x1, y1, x2, y2;
-    if (horizontal) {
-      x1 = start.x; x2 = start.x + sx * s;
-      y1 = start.y - wt; y2 = start.y + wt;
-    } else {
-      x1 = start.x - wt; x2 = start.x + wt;
-      y1 = start.y; y2 = start.y + sy * s;
-    }
-    const p = new fabric.Path(`M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${x1} ${y2} Z`, {
+    const perp = { x: -dir.y * wt, y: dir.x * wt };
+    const a1 = { x: start.x + perp.x, y: start.y + perp.y };
+    const a2 = { x: start.x - perp.x, y: start.y - perp.y };
+    const b1 = { x: a1.x + dir.x * s, y: a1.y + dir.y * s };
+    const b2 = { x: a2.x + dir.x * s, y: a2.y + dir.y * s };
+    const p = new fabric.Path(`M ${a1.x} ${a1.y} L ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${a2.x} ${a2.y} Z`, {
       stroke: '#000000', strokeWidth: 2, fill: '#ffffff',
     });
-    p.srGapX = (x1 + x2) / 2; p.srGapY = (y1 + y2) / 2;
+    p.srGapX = start.x + dir.x * s / 2; p.srGapY = start.y + dir.y * s / 2;
     return p;
   }
 
   // Puerta: hueco + hoja perpendicular + arco de apertura (dibujo arquitectónico).
-  function makeDoor(start, end, s) {
+  function makeDoor(start, end) {
     const dx = end.x - start.x, dy = end.y - start.y;
-    const horizontal = Math.abs(dx) >= Math.abs(dy);
-    const sx = Math.sign(dx) || 1, sy = Math.sign(dy) || 1;
-    const gap = gapPath(start, s, horizontal, sx, sy);
-    // bisagra A, tope B, punta de la hoja T (la hoja abre hacia arriba/izquierda)
+    const s = Math.hypot(dx, dy) || 1;
+    const dir = { x: dx / s, y: dy / s };
+    const gap = gapPath(start, s, dir);
+    // bisagra A, tope B, punta de la hoja T (la hoja abre hacia la izquierda del sentido de trazo)
     const A = { x: start.x, y: start.y };
-    const B = horizontal ? { x: start.x + sx * s, y: start.y } : { x: start.x, y: start.y + sy * s };
-    const n = horizontal ? { x: 0, y: -1 } : { x: -1, y: 0 };
+    const B = { x: end.x, y: end.y };
+    const n = { x: dir.y, y: -dir.x };
     const T = { x: A.x + n.x * s, y: A.y + n.y * s };
-    const u = { x: (B.x - A.x) / s, y: (B.y - A.y) / s };
-    const sweep = (n.x * u.y - n.y * u.x) > 0 ? 1 : 0;
+    const sweep = (n.x * dir.y - n.y * dir.x) > 0 ? 1 : 0;
     const leaf = new fabric.Line([A.x, A.y, T.x, T.y], { stroke: '#1f2937', strokeWidth: 3 });
     const arc = new fabric.Path(`M ${T.x} ${T.y} A ${s} ${s} 0 0 ${sweep} ${B.x} ${B.y}`, {
       stroke: '#9ca3af', strokeWidth: 1.5, strokeDashArray: [4, 4], fill: 'transparent',
@@ -791,18 +798,18 @@ const SR = (() => {
     return new fabric.Group([gap, leaf, arc], {
       srType: 'puerta', srCat: 'shape',
       srGapX: gap.srGapX, srGapY: gap.srGapY,
-      srDir: horizontal ? 'h' : 'v',
+      srDirX: dir.x, srDirY: dir.y, srLen: s,
     });
   }
 
   // Vano: abertura simple en la pared (solo el hueco, sin hoja).
   function makeVano(start, end) {
     const dx = end.x - start.x, dy = end.y - start.y;
-    const horizontal = Math.abs(dx) >= Math.abs(dy);
-    const s = Math.max(Math.abs(dx), Math.abs(dy));
-    const v = gapPath(start, s, horizontal, Math.sign(dx) || 1, Math.sign(dy) || 1);
+    const s = Math.hypot(dx, dy) || 1;
+    const dir = { x: dx / s, y: dy / s };
+    const v = gapPath(start, s, dir);
     v.srType = 'vano'; v.srCat = 'shape';
-    v.srDir = horizontal ? 'h' : 'v';
+    v.srDirX = dir.x; v.srDirY = dir.y; v.srLen = s;
     return v;
   }
 
@@ -1552,8 +1559,35 @@ const SR = (() => {
     canvas.getObjects().forEach((o) => {
       if (o.srType !== 'puerta' && o.srType !== 'vano') return;
       const r = gapRect(o);   // solo el hueco — el arco de la puerta no abre paso
-      const horizontal = o.srDir ? o.srDir === 'h' : (r.width >= r.height);
       const padAlong = 1;                       // a lo largo de la abertura (estrecho)
+      if (typeof o.srDirX === 'number') {
+        // puerta a cualquier ángulo: desbloquear un rectángulo orientado según
+        // la dirección real de la pared, no solo horizontal/vertical.
+        const dir = { x: o.srDirX, y: o.srDirY };
+        const perp = { x: -dir.y, y: dir.x };
+        const c = { x: o.srGapX, y: o.srGapY };
+        const halfLen = (o.srLen || Math.max(r.width, r.height)) / 2 + 1;
+        const along = { x: dir.x * halfLen, y: dir.y * halfLen };
+        const across = { x: perp.x * OPEN_PAD, y: perp.y * OPEN_PAD };
+        const corners = [
+          { x: c.x + along.x + across.x, y: c.y + along.y + across.y },
+          { x: c.x - along.x + across.x, y: c.y - along.y + across.y },
+          { x: c.x - along.x - across.x, y: c.y - along.y - across.y },
+          { x: c.x + along.x - across.x, y: c.y + along.y - across.y },
+        ];
+        const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+        const x0 = Math.max(0, Math.floor(Math.min(...xs) / GRID));
+        const x1 = Math.min(cols - 1, Math.floor(Math.max(...xs) / GRID));
+        const y0 = Math.max(0, Math.floor(Math.min(...ys) / GRID));
+        const y1 = Math.min(rows - 1, Math.floor(Math.max(...ys) / GRID));
+        for (let cy = y0; cy <= y1; cy++)
+          for (let cx = x0; cx <= x1; cx++) {
+            const px = cx * GRID + GRID / 2, py = cy * GRID + GRID / 2;
+            if (pointInPoly(px, py, corners)) blocked[cy * cols + cx] = 0;
+          }
+        return;
+      }
+      const horizontal = o.srDir ? o.srDir === 'h' : (r.width >= r.height);
       const padX = horizontal ? padAlong : OPEN_PAD;
       const padY = horizontal ? OPEN_PAD : padAlong;
       rectCellsXY(r, padX, padY, (i) => { blocked[i] = 0; });
